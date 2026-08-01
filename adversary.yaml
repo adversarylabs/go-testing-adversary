@@ -1,6 +1,6 @@
-name: go-testing
-version: 0.0.1
-description: Reviews Go tests for determinism, lifecycle ownership, isolation, and trustworthy failure behavior.
+name: go/testing
+version: 0.0.2
+description: "Reviews Go tests for TestMain mistakes, fatal-in-goroutine, sleep sync, fixed ports, and env leakage."
 
 triggers:
   manual: true

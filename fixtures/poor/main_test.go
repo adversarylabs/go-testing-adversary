@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
-func TestProductionMode(t *testing.T) {
-	os.Setenv("MODE", "production")
+func TestMain(m *testing.M) {
+	// setup only — never runs package tests
+	os.Setenv("MODE", "setup")
 }

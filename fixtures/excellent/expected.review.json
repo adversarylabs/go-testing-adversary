@@ -1,1 +1,1 @@
-{"risk":"none","findings":[],"positiveKeys":["go-testing.cleanup-owned","go-testing.test-scoped-env"],"ship":true}
+{"risk":"none","findings":[],"positiveKeys":["go-test.cleanup-owned","go-test.test-scoped-env"],"ship":true}
