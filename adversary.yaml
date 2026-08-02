@@ -1,5 +1,5 @@
 name: go/testing
-version: 0.0.2
+version: 0.0.3
 description: "Reviews Go tests for TestMain mistakes, fatal-in-goroutine, sleep sync, fixed ports, and env leakage."
 
 triggers:
