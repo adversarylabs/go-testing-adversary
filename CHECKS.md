@@ -118,7 +118,7 @@ Public grounding: `go vet` testinggoroutine analyzer, `testing` package document
 | --- | --- |
 | `-race` / vet missing in CI | `go-project` (`vet-race-not-in-ci`) |
 | Concurrency bugs in test helpers | `go/concurrency` |
-| Test fixtures containing realistic secrets | `meta/adversary` (`fixtures.real-looking-secrets`) / `security/secrets` |
+| Test fixtures containing realistic secrets | `adversarylabs/adversary` (`fixtures.real-looking-secrets`) / `security/secrets` |
 | Benchmark methodology | none — deliberately not judged |
 
 ---
