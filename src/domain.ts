@@ -88,6 +88,19 @@ export const domain: DomainDefinition = {
       impact: "False sense of coverage; skipped suites rot.",
       recommendation: "Fix or delete; if it must stay, link a tracking issue in the skip reason.",
     },
+    {
+      id: "go-test.helper-missing-helper",
+      title: "Test assertion helper does not call Helper",
+      category: "maintainability",
+      severity: "low",
+      confidence: "high",
+      summary: (count) =>
+        `${count} test assertion helper${count === 1 ? "" : "s"} report failures without marking themselves as helpers.`,
+      whyItMatters:
+        "Without Helper(), Go reports failures at the assertion helper instead of the test case that called it.",
+      impact: "Failure output hides the actionable call site and makes test triage slower.",
+      recommendation: "Call the testing object's Helper method before reporting a failure.",
+    },
   ],
   noRiskSummary:
     "The reviewed tests use deterministic, test-owned lifecycle and state management.",
@@ -124,6 +137,7 @@ export const domain: DomainDefinition = {
           (match) => ({ operation: match[1] }),
         ),
         ...unconditionalSkipSignals(file),
+        ...missingHelperSignals(file),
       ],
       positives: [
         ...positive(
@@ -250,4 +264,125 @@ function unconditionalSkipSignals(file: SourceRevision): Signal[] {
     }
   }
   return signals;
+}
+
+/**
+ * Named test helpers that report failures should mark themselves with Helper.
+ * Keep this deliberately narrow: direct testing API calls only, and never
+ * ordinary Test/Benchmark/Fuzz entrypoints.
+ */
+function missingHelperSignals(file: SourceRevision): Signal[] {
+  const signals: Signal[] = [];
+  const code = maskNonCode(file.current);
+  const declaration = /\bfunc\s+(\([^\n)]*\)\s*)?([A-Za-z_]\w*)\s*\(([^{}]*?)\)\s*(?:\([^{}]*\)|[^{}]*?)\{/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = declaration.exec(code)) !== null) {
+    const receiver = match[1] ?? "";
+    const name = match[2] ?? "";
+    const params = match[3] ?? "";
+    const openBrace = declaration.lastIndex - 1;
+    const closeBrace = matchingBrace(code, openBrace);
+    if (closeBrace === -1) continue;
+
+    declaration.lastIndex = closeBrace + 1;
+    const testingParams = [...params.matchAll(/\b([A-Za-z_]\w*)\s+(?:\*testing\.(?:T|B)|testing\.TB)\b/g)];
+    if (testingParams.length === 0) continue;
+    if (isTestEntrypoint(receiver, name, params)) continue;
+
+    const body = code.slice(openBrace + 1, closeBrace);
+    for (const testingParam of testingParams) {
+      const variable = testingParam[1] ?? "";
+      const escaped = escapeRegExp(variable);
+      const reportsFailure = new RegExp(
+        `\\b${escaped}\\.(?:Error|Errorf|Fail|FailNow|Fatal|Fatalf|Skip|Skipf|SkipNow)\\s*\\(`,
+      ).test(body);
+      if (!reportsFailure) continue;
+      if (new RegExp(`\\b${escaped}\\.Helper\\s*\\(`).test(body)) continue;
+
+      const start = match.index ?? 0;
+      const line = file.current.slice(0, start).split("\n").length;
+      signals.push({
+        ruleId: "go-test.helper-missing-helper",
+        path: file.path,
+        line,
+        endLine: file.current.slice(0, closeBrace).split("\n").length,
+        message: `${name} reports failures through ${variable} without calling ${variable}.Helper().`,
+        snippet: file.current.slice(start, openBrace + 1).trim().slice(0, 300),
+        data: { function: name, testingParam: variable },
+      });
+      break;
+    }
+  }
+
+  return signals;
+}
+
+function isTestEntrypoint(receiver: string, name: string, params: string): boolean {
+  if (receiver !== "") return false;
+  if (name === "TestMain") return true;
+  if (!/^(?:Test|Benchmark|Fuzz)(?:[A-Z_]|$)/.test(name)) return false;
+  return /^\s*[A-Za-z_]\w*\s+\*testing\.(?:T|B|F)\s*$/.test(params);
+}
+
+function matchingBrace(code: string, openBrace: number): number {
+  let depth = 0;
+  for (let index = openBrace; index < code.length; index += 1) {
+    if (code[index] === "{") depth += 1;
+    if (code[index] === "}") depth -= 1;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
+function maskNonCode(source: string): string {
+  const chars = [...source];
+  let state: "code" | "line" | "block" | "string" | "raw" | "rune" = "code";
+  let escaped = false;
+
+  for (let index = 0; index < chars.length; index += 1) {
+    const current = chars[index] ?? "";
+    const next = chars[index + 1] ?? "";
+    if (state === "code") {
+      if (current === "/" && next === "/") {
+        chars[index] = chars[index + 1] = " ";
+        index += 1;
+        state = "line";
+      } else if (current === "/" && next === "*") {
+        chars[index] = chars[index + 1] = " ";
+        index += 1;
+        state = "block";
+      } else if (current === '"') {
+        chars[index] = " ";
+        state = "string";
+      } else if (current === "`") {
+        chars[index] = " ";
+        state = "raw";
+      } else if (current === "'") {
+        chars[index] = " ";
+        state = "rune";
+      }
+      continue;
+    }
+
+    if (current !== "\n") chars[index] = " ";
+    if (state === "line" && current === "\n") state = "code";
+    else if (state === "block" && current === "*" && next === "/") {
+      chars[index + 1] = " ";
+      index += 1;
+      state = "code";
+    } else if (state === "raw" && current === "`") state = "code";
+    else if (state === "string" || state === "rune") {
+      if (!escaped && ((state === "string" && current === '"') || (state === "rune" && current === "'"))) {
+        state = "code";
+      }
+      escaped = !escaped && current === "\\";
+      if (current !== "\\") escaped = false;
+    }
+  }
+  return chars.join("");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
