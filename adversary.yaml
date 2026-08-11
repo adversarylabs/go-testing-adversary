@@ -1,6 +1,6 @@
 name: go/testing
 version: 0.0.6
-description: "Reviews Go tests for TestMain mistakes, fatal-in-goroutine, sleep sync, fixed ports, and env leakage."
+description: "Reviews Go tests for TestMain mistakes, fatal-in-goroutine, parallel env mutation, sleep sync, fixed ports, and env leakage."
 
 triggers:
   manual: true

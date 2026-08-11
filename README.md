@@ -5,6 +5,7 @@ Go Testing reviews whether changed tests provide deterministic, isolated, trustw
 It currently reviews:
 
 - assertions made from unowned background goroutines
+- parallel tests that mutate process-wide environment state
 - process-global environment mutation without test-scoped restoration
 - wall-clock sleeping used as synchronization
 
