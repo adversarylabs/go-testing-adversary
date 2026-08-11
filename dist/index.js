@@ -17317,11 +17317,12 @@ function missingHelperSignals(file) {
     for (const testingParam of testingParams) {
       const variable = testingParam[1] ?? "";
       const escaped = escapeRegExp(variable);
-      const reportsFailure = new RegExp(
+      const failure = new RegExp(
         `\\b${escaped}\\.(?:Error|Errorf|Fail|FailNow|Fatal|Fatalf|Skip|Skipf|SkipNow)\\s*\\(`
-      ).test(body2);
-      if (!reportsFailure) continue;
-      if (new RegExp(`\\b${escaped}\\.Helper\\s*\\(`).test(body2)) continue;
+      ).exec(body2);
+      if (failure === null) continue;
+      const helper = new RegExp(`\\b${escaped}\\.Helper\\s*\\(`).exec(body2);
+      if (helper !== null && helper.index < failure.index) continue;
       const start2 = match.index ?? 0;
       const line = file.current.slice(0, start2).split("\n").length;
       signals.push({

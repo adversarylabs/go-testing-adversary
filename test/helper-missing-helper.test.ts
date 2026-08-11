@@ -54,6 +54,18 @@ func assertReady(t *testing.T, ready bool) {
 }`).length, 0);
 });
 
+test("reports Helper calls that happen only after a failure can already be emitted", () => {
+  assert.equal(findings(`package sample
+import "testing"
+
+func assertReady(t *testing.T, ready bool) {
+  if !ready {
+    t.Error("not ready")
+  }
+  t.Helper()
+}`).length, 1);
+});
+
 test("stays quiet for test entrypoints and helpers that do not report failures", () => {
   assert.equal(findings(`package sample
 import "testing"

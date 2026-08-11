@@ -294,11 +294,12 @@ function missingHelperSignals(file: SourceRevision): Signal[] {
     for (const testingParam of testingParams) {
       const variable = testingParam[1] ?? "";
       const escaped = escapeRegExp(variable);
-      const reportsFailure = new RegExp(
+      const failure = new RegExp(
         `\\b${escaped}\\.(?:Error|Errorf|Fail|FailNow|Fatal|Fatalf|Skip|Skipf|SkipNow)\\s*\\(`,
-      ).test(body);
-      if (!reportsFailure) continue;
-      if (new RegExp(`\\b${escaped}\\.Helper\\s*\\(`).test(body)) continue;
+      ).exec(body);
+      if (failure === null) continue;
+      const helper = new RegExp(`\\b${escaped}\\.Helper\\s*\\(`).exec(body);
+      if (helper !== null && helper.index < failure.index) continue;
 
       const start = match.index ?? 0;
       const line = file.current.slice(0, start).split("\n").length;
