@@ -36,6 +36,20 @@ export const domain: DomainDefinition = {
       recommendation: "Use t.Error + channel/errgroup to propagate failure to the test goroutine.",
     },
     {
+      id: "go-test.parallel-setenv",
+      title: "Parallel test mutates process environment",
+      category: "correctness",
+      severity: "high",
+      confidence: "high",
+      summary: (count) =>
+        `${count} parallel test scope${count === 1 ? "" : "s"} also mutate the process environment.`,
+      whyItMatters:
+        "Go deliberately panics when the same test or subtest combines Parallel with Setenv because environment variables are process-wide.",
+      impact: "The test binary panics before the assertions run, blocking the package test suite.",
+      recommendation:
+        "Keep the test serial, or inject configuration without mutating the process environment; changing the call order does not make this combination safe.",
+    },
+    {
       id: "go-test.sleep-sync",
       title: "time.Sleep used to wait for concurrent work",
       category: "reliability",
@@ -107,10 +121,15 @@ export const domain: DomainDefinition = {
   approvalSummary:
     "I would trust the reviewed tests as repeatable evidence for the behavior they cover.",
   analyze(file) {
+    const parallelSetenv = parallelSetenvSignals(file);
+    const unsafeSetenvLines = new Set(
+      parallelSetenv.map((signal) => signal.data.setenvLine).filter((line): line is number => typeof line === "number"),
+    );
     return {
       signals: [
         ...testMainNoRunSignals(file),
         ...fatalInGoroutineSignals(file),
+        ...parallelSetenv,
         ...lineSignals(
           file,
           "go-test.sleep-sync",
@@ -145,7 +164,7 @@ export const domain: DomainDefinition = {
           "go-test.test-scoped-env",
           /\bt\.Setenv\s*\(/,
           "Environment mutation is restored by the testing runtime.",
-        ),
+        ).filter((item) => !unsafeSetenvLines.has(item.line)),
         ...positive(
           file,
           "go-test.cleanup-owned",
@@ -227,6 +246,105 @@ function fatalInGoroutineSignals(file: SourceRevision): Signal[] {
     seen.add(s.line);
     return true;
   });
+}
+
+/**
+ * Parallel and Setenv are mutually exclusive on one *testing.T. The testing
+ * package panics for either call order. Restrict detection to direct calls in
+ * one function or t.Run callback so branches and nested scopes do not get
+ * conflated into a speculative finding.
+ */
+function parallelSetenvSignals(file: SourceRevision): Signal[] {
+  const code = maskNonCode(file.current);
+  const scopes: Array<{
+    openBrace: number;
+    closeBrace: number;
+    variable: string;
+    label: string;
+  }> = [];
+
+  const declaration = /\bfunc\s+(?:\([^\n)]*\)\s*)?([A-Za-z_]\w*)\s*\(([^{}]*?)\)\s*(?:\([^{}]*\)|[^{}]*?)\{/g;
+  let declarationMatch: RegExpExecArray | null;
+  while ((declarationMatch = declaration.exec(code)) !== null) {
+    const openBrace = declaration.lastIndex - 1;
+    const closeBrace = matchingBrace(code, openBrace);
+    if (closeBrace === -1) continue;
+    declaration.lastIndex = closeBrace + 1;
+    for (const parameter of (declarationMatch[2] ?? "").matchAll(/\b([A-Za-z_]\w*)\s+\*testing\.T\b/g)) {
+      scopes.push({
+        openBrace,
+        closeBrace,
+        variable: parameter[1] ?? "t",
+        label: declarationMatch[1] ?? "test function",
+      });
+    }
+  }
+
+  const callback = /\b[A-Za-z_]\w*\.Run\s*\([\s\S]{0,240}?,\s*func\s*\(\s*([A-Za-z_]\w*)\s+\*testing\.T\s*\)\s*\{/g;
+  let callbackMatch: RegExpExecArray | null;
+  while ((callbackMatch = callback.exec(code)) !== null) {
+    const openBrace = callback.lastIndex - 1;
+    const closeBrace = matchingBrace(code, openBrace);
+    if (closeBrace === -1) continue;
+    scopes.push({
+      openBrace,
+      closeBrace,
+      variable: callbackMatch[1] ?? "t",
+      label: "t.Run callback",
+    });
+  }
+
+  const signals: Signal[] = [];
+  for (const scope of scopes) {
+    const bodyStart = scope.openBrace + 1;
+    const body = code.slice(bodyStart, scope.closeBrace);
+    const parallelOffset = directMethodCall(body, scope.variable, "Parallel");
+    const setenvOffset = directMethodCall(body, scope.variable, "Setenv");
+    if (parallelOffset === undefined || setenvOffset === undefined) continue;
+
+    const parallelLine = lineAt(file.current, bodyStart + parallelOffset);
+    const setenvLine = lineAt(file.current, bodyStart + setenvOffset);
+    const line = Math.min(parallelLine, setenvLine);
+    signals.push({
+      ruleId: "go-test.parallel-setenv",
+      path: file.path,
+      line,
+      endLine: Math.max(parallelLine, setenvLine),
+      message: `${scope.label} calls both ${scope.variable}.Parallel() and ${scope.variable}.Setenv(); Go will panic before the test can run.`,
+      snippet: (file.current.split("\n")[line - 1] ?? "").trim().slice(0, 300),
+      data: { testingParam: scope.variable, parallelLine, setenvLine },
+    });
+  }
+
+  const seen = new Set<string>();
+  return signals.filter((signal) => {
+    const key = `${signal.line}:${signal.endLine}:${String(signal.data.testingParam)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function directMethodCall(body: string, variable: string, method: string): number | undefined {
+  const pattern = new RegExp(`\\b${escapeRegExp(variable)}\\.${method}\\s*\\(`, "g");
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(body)) !== null) {
+    if (braceDepth(body, match.index) === 0) return match.index;
+  }
+  return undefined;
+}
+
+function braceDepth(source: string, end: number): number {
+  let depth = 0;
+  for (let index = 0; index < end; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}") depth -= 1;
+  }
+  return depth;
+}
+
+function lineAt(source: string, offset: number): number {
+  return source.slice(0, offset).split("\n").length;
 }
 
 /**

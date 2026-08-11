@@ -36,6 +36,17 @@ Public grounding: `go vet` testinggoroutine analyzer, `testing` package document
 | **Public examples** | `go vet` testinggoroutine analyzer; `testing` docs: "FailNow must be called from the goroutine running the test" |
 | **Remediation** | Use `t.Error` + channel/errgroup to propagate failure to the test goroutine |
 
+### `go-test.parallel-setenv`
+
+| | |
+| --- | --- |
+| **What** | One test or `t.Run` callback calls both `t.Parallel()` and `t.Setenv()` |
+| **Why** | Go deliberately panics for this combination because environment variables are process-wide; changing the call order does not make it safe |
+| **Looks for** | Direct `Parallel` and `Setenv` calls on the same `*testing.T` variable in one test scope |
+| **Stays quiet when** | Environment setup is serial; parallel and environment calls belong to separate scopes; the calls occur in mutually exclusive branches |
+| **Public examples** | Maintainer reviews in Teleport, Databricks CLI, and Terraform Provider DigitalOcean; `testing.T.Setenv` documentation |
+| **Remediation** | Keep the test serial, or inject configuration without mutating process environment |
+
 ---
 
 ## Medium
