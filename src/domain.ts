@@ -23,6 +23,20 @@ export const domain: DomainDefinition = {
       recommendation: "Call m.Run() (returning its code) from TestMain.",
     },
     {
+      id: "go-test.testmain-defer-before-exit",
+      title: "TestMain exits before deferred cleanup can run",
+      category: "reliability",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) =>
+        `${count} TestMain function${count === 1 ? "" : "s"} terminate with deferred cleanup still pending.`,
+      whyItMatters:
+        "os.Exit terminates the process immediately and never runs deferred functions, so cleanup registered by TestMain is silently skipped.",
+      impact: "Child processes, sockets, temporary files, and other test resources can leak across local or CI runs.",
+      recommendation:
+        "Run the test lifecycle in a helper that returns m.Run()'s code, then call os.Exit on the helper result after its defers have run.",
+    },
+    {
       id: "go-test.fatal-in-goroutine",
       title: "t.Fatal/FailNow/Skip called from a test-spawned goroutine",
       category: "correctness",
@@ -128,6 +142,7 @@ export const domain: DomainDefinition = {
     return {
       signals: [
         ...testMainNoRunSignals(file),
+        ...testMainDeferBeforeExitSignals(file),
         ...fatalInGoroutineSignals(file),
         ...parallelSetenv,
         ...lineSignals(
@@ -208,6 +223,46 @@ function testMainNoRunSignals(file: SourceRevision): Signal[] {
       data: { param: mVar },
     });
   }
+  return signals;
+}
+
+/**
+ * os.Exit bypasses every pending defer. Keep this rule deliberately narrow:
+ * both the defer and os.Exit must be direct statements in TestMain, and the
+ * defer must appear first. This avoids conflating mutually exclusive branches
+ * or helper-owned cleanup with an executable leak path.
+ */
+function testMainDeferBeforeExitSignals(file: SourceRevision): Signal[] {
+  const code = maskNonCode(file.current);
+  const signals: Signal[] = [];
+  const declaration = /\bfunc\s+TestMain\s*\(\s*([A-Za-z_]\w*)\s+\*testing\.M\s*\)\s*\{/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = declaration.exec(code)) !== null) {
+    const openBrace = declaration.lastIndex - 1;
+    const closeBrace = matchingBrace(code, openBrace);
+    if (closeBrace === -1) continue;
+    declaration.lastIndex = closeBrace + 1;
+
+    const bodyStart = openBrace + 1;
+    const body = code.slice(bodyStart, closeBrace);
+    const deferOffset = directToken(body, /\bdefer\b/g);
+    const exitOffset = directToken(body, /\bos\.Exit\s*\(/g, deferOffset === undefined ? 0 : deferOffset + 1);
+    if (deferOffset === undefined || exitOffset === undefined || exitOffset < deferOffset) continue;
+
+    const deferLine = lineAt(file.current, bodyStart + deferOffset);
+    const exitLine = lineAt(file.current, bodyStart + exitOffset);
+    signals.push({
+      ruleId: "go-test.testmain-defer-before-exit",
+      path: file.path,
+      line: deferLine,
+      endLine: exitLine,
+      message: "TestMain calls os.Exit while deferred cleanup is pending; those deferred functions will never run.",
+      snippet: (file.current.split("\n")[deferLine - 1] ?? "").trim().slice(0, 300),
+      data: { test: "TestMain", deferLine, exitLine },
+    });
+  }
+
   return signals;
 }
 
@@ -327,6 +382,15 @@ function parallelSetenvSignals(file: SourceRevision): Signal[] {
 
 function directMethodCall(body: string, variable: string, method: string): number | undefined {
   const pattern = new RegExp(`\\b${escapeRegExp(variable)}\\.${method}\\s*\\(`, "g");
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(body)) !== null) {
+    if (braceDepth(body, match.index) === 0) return match.index;
+  }
+  return undefined;
+}
+
+function directToken(body: string, pattern: RegExp, from = 0): number | undefined {
+  pattern.lastIndex = from;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(body)) !== null) {
     if (braceDepth(body, match.index) === 0) return match.index;
