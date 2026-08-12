@@ -17086,6 +17086,17 @@ var domain = {
       recommendation: "Call m.Run() (returning its code) from TestMain."
     },
     {
+      id: "go-test.testmain-defer-before-exit",
+      title: "TestMain exits before deferred cleanup can run",
+      category: "reliability",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) => `${count} TestMain function${count === 1 ? "" : "s"} terminate with deferred cleanup still pending.`,
+      whyItMatters: "os.Exit terminates the process immediately and never runs deferred functions, so cleanup registered by TestMain is silently skipped.",
+      impact: "Child processes, sockets, temporary files, and other test resources can leak across local or CI runs.",
+      recommendation: "Run the test lifecycle in a helper that returns m.Run()'s code, then call os.Exit on the helper result after its defers have run."
+    },
+    {
       id: "go-test.fatal-in-goroutine",
       title: "t.Fatal/FailNow/Skip called from a test-spawned goroutine",
       category: "correctness",
@@ -17173,6 +17184,7 @@ var domain = {
     return {
       signals: [
         ...testMainNoRunSignals(file),
+        ...testMainDeferBeforeExitSignals(file),
         ...fatalInGoroutineSignals(file),
         ...parallelSetenv,
         ...lineSignals(
@@ -17247,6 +17259,35 @@ function testMainNoRunSignals(file) {
       message: `TestMain does not call ${mVar}.Run(); package tests will never execute.`,
       snippet: (match[0] ?? "").trim().slice(0, 300),
       data: { param: mVar }
+    });
+  }
+  return signals;
+}
+function testMainDeferBeforeExitSignals(file) {
+  const code = maskNonCode(file.current);
+  const signals = [];
+  const declaration = /\bfunc\s+TestMain\s*\(\s*([A-Za-z_]\w*)\s+\*testing\.M\s*\)\s*\{/g;
+  let match;
+  while ((match = declaration.exec(code)) !== null) {
+    const openBrace = declaration.lastIndex - 1;
+    const closeBrace = matchingBrace(code, openBrace);
+    if (closeBrace === -1) continue;
+    declaration.lastIndex = closeBrace + 1;
+    const bodyStart = openBrace + 1;
+    const body2 = code.slice(bodyStart, closeBrace);
+    const deferOffset = directToken(body2, /\bdefer\b/g);
+    const exitOffset = directToken(body2, /\bos\.Exit\s*\(/g, deferOffset === void 0 ? 0 : deferOffset + 1);
+    if (deferOffset === void 0 || exitOffset === void 0 || exitOffset < deferOffset) continue;
+    const deferLine = lineAt(file.current, bodyStart + deferOffset);
+    const exitLine = lineAt(file.current, bodyStart + exitOffset);
+    signals.push({
+      ruleId: "go-test.testmain-defer-before-exit",
+      path: file.path,
+      line: deferLine,
+      endLine: exitLine,
+      message: "TestMain calls os.Exit while deferred cleanup is pending; those deferred functions will never run.",
+      snippet: (file.current.split("\n")[deferLine - 1] ?? "").trim().slice(0, 300),
+      data: { test: "TestMain", deferLine, exitLine }
     });
   }
   return signals;
@@ -17345,6 +17386,14 @@ function parallelSetenvSignals(file) {
 }
 function directMethodCall(body2, variable, method) {
   const pattern = new RegExp(`\\b${escapeRegExp(variable)}\\.${method}\\s*\\(`, "g");
+  let match;
+  while ((match = pattern.exec(body2)) !== null) {
+    if (braceDepth(body2, match.index) === 0) return match.index;
+  }
+  return void 0;
+}
+function directToken(body2, pattern, from = 0) {
+  pattern.lastIndex = from;
   let match;
   while ((match = pattern.exec(body2)) !== null) {
     if (braceDepth(body2, match.index) === 0) return match.index;
