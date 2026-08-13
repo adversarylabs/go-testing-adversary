@@ -16,7 +16,7 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
         try {
           if (tree.rootNode.hasError) throw new Error("Go source contains syntax errors");
           const result = domain.analyze(file);
-          signals.push(...result.signals.filter((item) => changedSignal(file, item)));
+          signals.push(...result.signals.flatMap((item) => localizeSignal(file, item)));
           selectorEvidence.push(...selectorOracleEvidence(file, tree));
           positives.push(...result.positives.filter((item) => changed(file, item.line)));
         } finally {
@@ -25,7 +25,7 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
         continue;
       }
       const result = domain.analyze(file);
-      signals.push(...result.signals.filter((item) => changedSignal(file, item)));
+      signals.push(...result.signals.flatMap((item) => localizeSignal(file, item)));
       positives.push(...result.positives.filter((item) => changed(file, item.line)));
     } catch (error) {
       parseErrors.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
@@ -33,9 +33,9 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
   }
 
   const files = new Map(discovery.files.map((file) => [file.path, file]));
-  signals.push(...selectorOracleSignals(selectorEvidence).filter((signal) => {
+  signals.push(...selectorOracleSignals(selectorEvidence).flatMap((signal) => {
     const file = files.get(signal.path);
-    return file !== undefined && changedSignal(file, signal);
+    return file === undefined ? [] : localizeSignal(file, signal);
   }));
 
   return {
@@ -48,11 +48,48 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
   };
 }
 
-function changedSignal(file: SourceRevision, signal: Signal): boolean {
-  if (signal.anchors !== undefined) {
-    return signal.anchors.some((line) => changed(file, line));
+export function localizeSignal(file: SourceRevision, signal: Signal): Signal[] {
+  if (file.status === "repository" || file.status === "added") return [signal];
+  if (signal.locality === undefined) return [];
+
+  const locality = signal.locality;
+  const candidates = locality.kind === "direct"
+    ? locality.anchors
+    : [...file.changedLines].filter(
+      (line) => line >= locality.startLine && line <= locality.endLine,
+    );
+  const changedLine = [...new Set(candidates)]
+    .filter((line) => file.changedLines.has(line))
+    .sort((left, right) => left - right)[0];
+  if (changedLine === undefined) {
+    if (locality.kind !== "scope") return [];
+    const deletion = (file.deletedHunks ?? []).find(
+      (hunk) => hunk.afterLine >= locality.startLine && hunk.afterLine < locality.endLine,
+    );
+    if (deletion === undefined) return [];
+
+    return [localizedSignal(file, signal, locality.startLine, {
+      ...signal.data,
+      localityChange: { kind: "deletion", ...deletion },
+    })];
   }
-  return changed(file, signal.line, signal.endLine);
+
+  return [localizedSignal(file, signal, changedLine, signal.data)];
+}
+
+function localizedSignal(
+  file: SourceRevision,
+  signal: Signal,
+  line: number,
+  data: Signal["data"],
+): Signal {
+  const { endLine: _endLine, ...localized } = signal;
+  return {
+    ...localized,
+    line,
+    snippet: (file.current.split("\n")[line - 1] ?? "").trim().slice(0, 300),
+    data,
+  };
 }
 
 function changed(file: SourceRevision, line: number, endLine = line): boolean {

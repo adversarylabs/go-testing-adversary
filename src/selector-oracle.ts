@@ -108,7 +108,7 @@ export function selectorOracleSignals(allEvidence: SelectorOracleEvidence[]): Si
       ruleId: "go-test.selector-boundary-oracle",
       path: presentation.evidence.path,
       line: presentation.line,
-      anchors: [presentation.line],
+      locality: { kind: "direct", anchors: [presentation.line] },
       message: `${name} is asserted only where the expected value is the ${boundary} input; an always-${boundary} implementation would pass every applicable case.`,
       snippet: (presentation.evidence.source.split("\n")[presentation.line - 1] ?? "").trim().slice(0, 300),
       data: {

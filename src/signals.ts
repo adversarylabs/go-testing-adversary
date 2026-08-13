@@ -15,6 +15,7 @@ export function lineSignals(
         ruleId,
         path: file.path,
         line: index + 1,
+        locality: { kind: "direct", anchors: [index + 1] },
         message: message(match),
         snippet: line.trim().slice(0, 300),
         data: data(match),
@@ -47,11 +48,16 @@ export function contentSignal(
   const match = pattern.exec(file.current);
   if (match?.index === undefined) return [];
   const line = file.current.slice(0, match.index).split("\n").length;
+  const endLine = line + match[0].split("\n").length - 1;
   return [{
     ruleId,
     path: file.path,
     line,
-    endLine: line + match[0].split("\n").length - 1,
+    endLine,
+    locality: {
+      kind: "direct",
+      anchors: Array.from({ length: endLine - line + 1 }, (_, index) => line + index),
+    },
     message,
     snippet: match[0].trim().slice(0, 300),
     data,

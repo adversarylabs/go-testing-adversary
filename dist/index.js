@@ -17049,6 +17049,7 @@ function lineSignals(file, ruleId, pattern, message, data = () => ({})) {
         ruleId,
         path: file.path,
         line: index + 1,
+        locality: { kind: "direct", anchors: [index + 1] },
         message: message(match),
         snippet: line.trim().slice(0, 300),
         data: data(match)
@@ -17251,22 +17252,28 @@ var domain = {
 };
 function testMainNoRunSignals(file) {
   if (!/\bfunc\s+TestMain\s*\(/.test(file.current)) return [];
+  const code = maskNonCode(file.current);
   const signals = [];
   const re = /\bfunc\s+TestMain\s*\(\s*(\w+)\s+\*testing\.M\s*\)\s*\{/g;
   let match;
-  while ((match = re.exec(file.current)) !== null) {
+  while ((match = re.exec(code)) !== null) {
     const mVar = match[1] ?? "m";
     const start2 = match.index ?? 0;
-    const rest = file.current.slice(start2);
-    const nextFunc = rest.slice(1).search(/\nfunc\s+/);
-    const body2 = nextFunc === -1 ? rest : rest.slice(0, nextFunc + 1);
+    const openBrace = re.lastIndex - 1;
+    const closeBrace = matchingBrace(code, openBrace);
+    if (closeBrace === -1) continue;
+    re.lastIndex = closeBrace + 1;
+    const body2 = code.slice(openBrace + 1, closeBrace);
     const escaped = mVar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(`\\b${escaped}\\.Run\\s*\\(`).test(body2.replace(/\/\/[^\n]*/g, " "))) continue;
-    const line = file.current.slice(0, start2).split("\n").length;
+    if (new RegExp(`\\b${escaped}\\.Run\\s*\\(`).test(body2)) continue;
+    const line = lineAt(file.current, start2);
+    const endLine = lineAt(file.current, closeBrace);
     signals.push({
       ruleId: "go-test.testmain-no-run",
       path: file.path,
       line,
+      endLine,
+      locality: { kind: "scope", startLine: line, endLine },
       message: `TestMain does not call ${mVar}.Run(); package tests will never execute.`,
       snippet: (match[0] ?? "").trim().slice(0, 300),
       data: { param: mVar }
@@ -17296,6 +17303,7 @@ function testMainDeferBeforeExitSignals(file) {
       path: file.path,
       line: deferLine,
       endLine: exitLine,
+      locality: { kind: "direct", anchors: [deferLine, exitLine] },
       message: "TestMain calls os.Exit while deferred cleanup is pending; those deferred functions will never run.",
       snippet: (file.current.split("\n")[deferLine - 1] ?? "").trim().slice(0, 300),
       data: { test: "TestMain", deferLine, exitLine }
@@ -17313,19 +17321,26 @@ function fatalInGoroutineSignals(file) {
       () => "Fatal-style test API is invoked from a newly launched goroutine."
     )
   );
+  const code = maskNonCode(file.current);
   const re = /\bgo\s+func\s*(?:\([^)]*\))?\s*\{([\s\S]{0,400}?)\}(?:\s*\([^)]*\))?\s*\(\s*\)/g;
   let match;
-  while ((match = re.exec(file.current)) !== null) {
+  while ((match = re.exec(code)) !== null) {
     const body2 = match[1] ?? "";
-    if (!/\bt\.(?:Fatal|Fatalf|FailNow|Skip|Skipf|SkipNow)\s*\(/.test(body2)) continue;
-    const line = file.current.slice(0, match.index ?? 0).split("\n").length;
+    const fatal = /\bt\.(?:Fatal|Fatalf|FailNow|Skip|Skipf|SkipNow)\s*\(/.exec(body2);
+    if (fatal === null) continue;
+    const matchStart = match.index ?? 0;
+    const bodyStart = matchStart + (match[0]?.indexOf(body2) ?? 0);
+    const line = lineAt(file.current, matchStart);
+    const fatalLine = lineAt(file.current, bodyStart + fatal.index);
     signals.push({
       ruleId: "go-test.fatal-in-goroutine",
       path: file.path,
       line,
+      endLine: fatalLine,
+      locality: { kind: "direct", anchors: [line, fatalLine] },
       message: "Fatal-style test API is invoked from a goroutine the test spawned.",
       snippet: (match[0] ?? "").trim().slice(0, 300),
-      data: {}
+      data: { goroutineLine: line, fatalLine }
     });
   }
   const seen = /* @__PURE__ */ new Set();
@@ -17382,6 +17397,7 @@ function parallelSetenvSignals(file) {
       path: file.path,
       line,
       endLine: Math.max(parallelLine, setenvLine),
+      locality: { kind: "direct", anchors: [parallelLine, setenvLine] },
       message: `${scope.label} calls both ${scope.variable}.Parallel() and ${scope.variable}.Setenv(); Go will panic before the test can run.`,
       snippet: (file.current.split("\n")[line - 1] ?? "").trim().slice(0, 300),
       data: { testingParam: scope.variable, parallelLine, setenvLine }
@@ -17442,6 +17458,7 @@ function unconditionalSkipSignals(file) {
           ruleId: "go-test.unconditional-skip",
           path: file.path,
           line,
+          locality: { kind: "direct", anchors: [line] },
           message: `${match[1]} begins with an unconditional t.Skip.`,
           snippet: trimmed.slice(0, 300),
           data: { test: match[1] }
@@ -17480,11 +17497,13 @@ function missingHelperSignals(file) {
       if (helper !== null && helper.index < failure.index) continue;
       const start2 = match.index ?? 0;
       const line = file.current.slice(0, start2).split("\n").length;
+      const endLine = lineAt(file.current, closeBrace);
       signals.push({
         ruleId: "go-test.helper-missing-helper",
         path: file.path,
         line,
-        endLine: file.current.slice(0, closeBrace).split("\n").length,
+        endLine,
+        locality: { kind: "scope", startLine: line, endLine },
         message: `${name2} reports failures through ${variable} without calling ${variable}.Helper().`,
         snippet: file.current.slice(start2, openBrace + 1).trim().slice(0, 300),
         data: { function: name2, testingParam: variable }
@@ -21679,7 +21698,7 @@ function selectorOracleSignals(allEvidence) {
       ruleId: "go-test.selector-boundary-oracle",
       path: presentation.evidence.path,
       line: presentation.line,
-      anchors: [presentation.line],
+      locality: { kind: "direct", anchors: [presentation.line] },
       message: `${name2} is asserted only where the expected value is the ${boundary} input; an always-${boundary} implementation would pass every applicable case.`,
       snippet: (presentation.evidence.source.split("\n")[presentation.line - 1] ?? "").trim().slice(0, 300),
       data: {
@@ -22049,7 +22068,7 @@ async function analyzeDiscovery(discovery) {
         try {
           if (tree.rootNode.hasError) throw new Error("Go source contains syntax errors");
           const result2 = domain.analyze(file);
-          signals.push(...result2.signals.filter((item) => changedSignal(file, item)));
+          signals.push(...result2.signals.flatMap((item) => localizeSignal(file, item)));
           selectorEvidence.push(...selectorOracleEvidence(file, tree));
           positives.push(...result2.positives.filter((item) => changed(file, item.line)));
         } finally {
@@ -22058,16 +22077,16 @@ async function analyzeDiscovery(discovery) {
         continue;
       }
       const result = domain.analyze(file);
-      signals.push(...result.signals.filter((item) => changedSignal(file, item)));
+      signals.push(...result.signals.flatMap((item) => localizeSignal(file, item)));
       positives.push(...result.positives.filter((item) => changed(file, item.line)));
     } catch (error) {
       parseErrors.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
     }
   }
   const files = new Map(discovery.files.map((file) => [file.path, file]));
-  signals.push(...selectorOracleSignals(selectorEvidence).filter((signal) => {
+  signals.push(...selectorOracleSignals(selectorEvidence).flatMap((signal) => {
     const file = files.get(signal.path);
-    return file !== void 0 && changedSignal(file, signal);
+    return file === void 0 ? [] : localizeSignal(file, signal);
   }));
   return {
     mode: discovery.mode,
@@ -22078,11 +22097,35 @@ async function analyzeDiscovery(discovery) {
     parseErrors: parseErrors.sort((left, right) => left.path.localeCompare(right.path))
   };
 }
-function changedSignal(file, signal) {
-  if (signal.anchors !== void 0) {
-    return signal.anchors.some((line) => changed(file, line));
+function localizeSignal(file, signal) {
+  if (file.status === "repository" || file.status === "added") return [signal];
+  if (signal.locality === void 0) return [];
+  const locality = signal.locality;
+  const candidates = locality.kind === "direct" ? locality.anchors : [...file.changedLines].filter(
+    (line) => line >= locality.startLine && line <= locality.endLine
+  );
+  const changedLine = [...new Set(candidates)].filter((line) => file.changedLines.has(line)).sort((left, right) => left - right)[0];
+  if (changedLine === void 0) {
+    if (locality.kind !== "scope") return [];
+    const deletion = (file.deletedHunks ?? []).find(
+      (hunk) => hunk.afterLine >= locality.startLine && hunk.afterLine < locality.endLine
+    );
+    if (deletion === void 0) return [];
+    return [localizedSignal(file, signal, locality.startLine, {
+      ...signal.data,
+      localityChange: { kind: "deletion", ...deletion }
+    })];
   }
-  return changed(file, signal.line, signal.endLine);
+  return [localizedSignal(file, signal, changedLine, signal.data)];
+}
+function localizedSignal(file, signal, line, data) {
+  const { endLine: _endLine, ...localized } = signal;
+  return {
+    ...localized,
+    line,
+    snippet: (file.current.split("\n")[line - 1] ?? "").trim().slice(0, 300),
+    data
+  };
 }
 function changed(file, line, endLine = line) {
   if (file.status === "repository" || file.status === "added") return true;
@@ -22115,6 +22158,7 @@ async function discoverSources(ctx) {
         path: source.path,
         current: source.content,
         changedLines: /* @__PURE__ */ new Set(),
+        deletedHunks: [],
         status: "repository"
       });
       continue;
@@ -22124,6 +22168,7 @@ async function discoverSources(ctx) {
       path: source.path,
       current: source.content,
       changedLines: change.changedLines,
+      deletedHunks: change.deletedHunks,
       status: change.status
     });
   }
@@ -22136,14 +22181,14 @@ async function discoverSources(ctx) {
 async function changedSource(ctx, path) {
   const base = ctx.change?.baseRef;
   if (base === void 0 || !await existsAtRevision(ctx.repoPath, base, path)) {
-    return { changedLines: /* @__PURE__ */ new Set(), status: "added" };
+    return { changedLines: /* @__PURE__ */ new Set(), deletedHunks: [], status: "added" };
   }
   const args2 = ["diff", "--unified=0", base];
   const head = ctx.change?.headRef;
   if (head !== void 0 && !ctx.change?.worktree) args2.push(head);
   args2.push("--", path);
   const patch = await gitOutput(ctx.repoPath, args2);
-  return { changedLines: changedLineNumbers(patch), status: "modified" };
+  return { ...changeProvenance(patch), status: "modified" };
 }
 async function existsAtRevision(repoPath, revision, path) {
   try {
@@ -22162,14 +22207,20 @@ async function gitOutput(repoPath, args2) {
   });
   return result.stdout;
 }
-function changedLineNumbers(patch) {
-  const lines = /* @__PURE__ */ new Set();
-  for (const match of patch.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
-    const start2 = Number(match[1]);
-    const count = match[2] === void 0 ? 1 : Number(match[2]);
-    for (let line = start2; line < start2 + count; line += 1) lines.add(line);
+function changeProvenance(patch) {
+  const changedLines = /* @__PURE__ */ new Set();
+  const deletedHunks = [];
+  for (const match of patch.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const oldCount = match[2] === void 0 ? 1 : Number(match[2]);
+    const start2 = Number(match[3]);
+    const count = match[4] === void 0 ? 1 : Number(match[4]);
+    if (count === 0 && oldCount > 0) {
+      deletedHunks.push({ afterLine: start2, deletedLines: oldCount });
+      continue;
+    }
+    for (let line = start2; line < start2 + count; line += 1) changedLines.add(line);
   }
-  return lines;
+  return { changedLines, deletedHunks };
 }
 
 // src/navigation.ts
