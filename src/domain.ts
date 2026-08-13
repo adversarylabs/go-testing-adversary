@@ -104,6 +104,20 @@ export const domain: DomainDefinition = {
       recommendation: "Replace with t.Setenv (Go 1.17+).",
     },
     {
+      id: "go-test.selector-boundary-oracle",
+      title: "Selector tests preserve a trivial boundary implementation",
+      category: "correctness",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) =>
+        `${count} selector${count === 1 ? "" : "s"} are tested only with the expected value at one input boundary.`,
+      whyItMatters:
+        "Every applicable case also passes if the selector returns the first or last input without implementing its named order-independent contract.",
+      impact: "A broken reducer can ship behind tests that stay green while exercising the intended API shape.",
+      recommendation:
+        "Add a reversed, shuffled, or interior-winner case so neither an always-first nor an always-last implementation can satisfy the test oracle.",
+    },
+    {
       id: "go-test.unconditional-skip",
       title: "Test begins with an unconditional t.Skip",
       category: "maintainability",

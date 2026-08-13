@@ -84,6 +84,16 @@ Public grounding: `go vet` testinggoroutine analyzer, `testing` package document
 | **Public examples** | `testing.T.Setenv` docs |
 | **Remediation** | Replace with `t.Setenv` |
 
+### `go-test.selector-boundary-oracle`
+
+| | |
+| --- | --- |
+| **What** | Direct tests of a named order-independent selector let an always-first or always-last implementation pass every applicable multi-element case |
+| **Why** | The test exercises the API but does not prove that minimum/maximum/canonical/best-style selection actually examines the candidates |
+| **Looks for** | Equality assertions around direct selector calls whose literal or keyed table inputs have at least two scalar values and whose expected result is consistently the same input boundary |
+| **Stays quiet when** | Cases mix boundary positions or use an interior winner; the input is a singleton; assertions only check membership; the API explicitly promises first/last/stable order; the selector contract or literal oracle cannot be proven syntactically |
+| **Remediation** | Add a reversed, shuffled, or interior-winner case that defeats both always-first and always-last mutations |
+
 ### `go-test.external-network`
 
 | | |

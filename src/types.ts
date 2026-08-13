@@ -16,6 +16,8 @@ export interface Signal {
   path: string;
   line: number;
   endLine?: number;
+  /** Exact semantic lines that can make a relationship finding new in a diff. */
+  anchors?: number[];
   message: string;
   snippet: string;
   data: Record<string, unknown>;
