@@ -213,25 +213,28 @@ export const domain: DomainDefinition = {
 
 function testMainNoRunSignals(file: SourceRevision): Signal[] {
   if (!/\bfunc\s+TestMain\s*\(/.test(file.current)) return [];
-  // If m.Run appears anywhere in the file's TestMain scope, quiet.
-  // Capture each TestMain body roughly until next top-level func.
+  const code = maskNonCode(file.current);
   const signals: Signal[] = [];
   const re = /\bfunc\s+TestMain\s*\(\s*(\w+)\s+\*testing\.M\s*\)\s*\{/g;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(file.current)) !== null) {
+  while ((match = re.exec(code)) !== null) {
     const mVar = match[1] ?? "m";
     const start = match.index ?? 0;
-    const rest = file.current.slice(start);
-    const nextFunc = rest.slice(1).search(/\nfunc\s+/);
-    const body = nextFunc === -1 ? rest : rest.slice(0, nextFunc + 1);
+    const openBrace = re.lastIndex - 1;
+    const closeBrace = matchingBrace(code, openBrace);
+    if (closeBrace === -1) continue;
+    re.lastIndex = closeBrace + 1;
+    const body = code.slice(openBrace + 1, closeBrace);
     const escaped = mVar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Require a real call site — comments like "forgot m.Run()" must not quiet this.
-    if (new RegExp(`\\b${escaped}\\.Run\\s*\\(`).test(body.replace(/\/\/[^\n]*/g, " "))) continue;
-    const line = file.current.slice(0, start).split("\n").length;
+    if (new RegExp(`\\b${escaped}\\.Run\\s*\\(`).test(body)) continue;
+    const line = lineAt(file.current, start);
+    const endLine = lineAt(file.current, closeBrace);
     signals.push({
       ruleId: "go-test.testmain-no-run",
       path: file.path,
       line,
+      endLine,
+      locality: { kind: "scope", startLine: line, endLine },
       message: `TestMain does not call ${mVar}.Run(); package tests will never execute.`,
       snippet: (match[0] ?? "").trim().slice(0, 300),
       data: { param: mVar },
@@ -271,6 +274,7 @@ function testMainDeferBeforeExitSignals(file: SourceRevision): Signal[] {
       path: file.path,
       line: deferLine,
       endLine: exitLine,
+      locality: { kind: "direct", anchors: [deferLine, exitLine] },
       message: "TestMain calls os.Exit while deferred cleanup is pending; those deferred functions will never run.",
       snippet: (file.current.split("\n")[deferLine - 1] ?? "").trim().slice(0, 300),
       data: { test: "TestMain", deferLine, exitLine },
@@ -292,21 +296,27 @@ function fatalInGoroutineSignals(file: SourceRevision): Signal[] {
     ),
   );
   // Multi-line go func bodies.
+  const code = maskNonCode(file.current);
   const re =
     /\bgo\s+func\s*(?:\([^)]*\))?\s*\{([\s\S]{0,400}?)\}(?:\s*\([^)]*\))?\s*\(\s*\)/g;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(file.current)) !== null) {
+  while ((match = re.exec(code)) !== null) {
     const body = match[1] ?? "";
-    if (!/\bt\.(?:Fatal|Fatalf|FailNow|Skip|Skipf|SkipNow)\s*\(/.test(body)) continue;
-    // t.Error is legal — already excluded by pattern.
-    const line = file.current.slice(0, match.index ?? 0).split("\n").length;
+    const fatal = /\bt\.(?:Fatal|Fatalf|FailNow|Skip|Skipf|SkipNow)\s*\(/.exec(body);
+    if (fatal === null) continue;
+    const matchStart = match.index ?? 0;
+    const bodyStart = matchStart + (match[0]?.indexOf(body) ?? 0);
+    const line = lineAt(file.current, matchStart);
+    const fatalLine = lineAt(file.current, bodyStart + fatal.index);
     signals.push({
       ruleId: "go-test.fatal-in-goroutine",
       path: file.path,
       line,
+      endLine: fatalLine,
+      locality: { kind: "direct", anchors: [line, fatalLine] },
       message: "Fatal-style test API is invoked from a goroutine the test spawned.",
       snippet: (match[0] ?? "").trim().slice(0, 300),
-      data: {},
+      data: { goroutineLine: line, fatalLine },
     });
   }
   const seen = new Set<number>();
@@ -379,6 +389,7 @@ function parallelSetenvSignals(file: SourceRevision): Signal[] {
       path: file.path,
       line,
       endLine: Math.max(parallelLine, setenvLine),
+      locality: { kind: "direct", anchors: [parallelLine, setenvLine] },
       message: `${scope.label} calls both ${scope.variable}.Parallel() and ${scope.variable}.Setenv(); Go will panic before the test can run.`,
       snippet: (file.current.split("\n")[line - 1] ?? "").trim().slice(0, 300),
       data: { testingParam: scope.variable, parallelLine, setenvLine },
@@ -451,6 +462,7 @@ function unconditionalSkipSignals(file: SourceRevision): Signal[] {
           ruleId: "go-test.unconditional-skip",
           path: file.path,
           line,
+          locality: { kind: "direct", anchors: [line] },
           message: `${match[1]} begins with an unconditional t.Skip.`,
           snippet: trimmed.slice(0, 300),
           data: { test: match[1] },
@@ -499,11 +511,13 @@ function missingHelperSignals(file: SourceRevision): Signal[] {
 
       const start = match.index ?? 0;
       const line = file.current.slice(0, start).split("\n").length;
+      const endLine = lineAt(file.current, closeBrace);
       signals.push({
         ruleId: "go-test.helper-missing-helper",
         path: file.path,
         line,
-        endLine: file.current.slice(0, closeBrace).split("\n").length,
+        endLine,
+        locality: { kind: "scope", startLine: line, endLine },
         message: `${name} reports failures through ${variable} without calling ${variable}.Helper().`,
         snippet: file.current.slice(start, openBrace + 1).trim().slice(0, 300),
         data: { function: name, testingParam: variable },

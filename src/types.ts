@@ -11,13 +11,25 @@ export interface Discovery {
   files: SourceRevision[];
 }
 
+export type SignalLocality =
+  | {
+      kind: "direct";
+      /** Exact semantic sites whose change can make this finding new. */
+      anchors: number[];
+    }
+  | {
+      kind: "scope";
+      /** Inclusive current-source function scope for an absence-based finding. */
+      startLine: number;
+      endLine: number;
+    };
+
 export interface Signal {
   ruleId: string;
   path: string;
   line: number;
   endLine?: number;
-  /** Exact semantic lines that can make a relationship finding new in a diff. */
-  anchors?: number[];
+  locality?: SignalLocality;
   message: string;
   snippet: string;
   data: Record<string, unknown>;
