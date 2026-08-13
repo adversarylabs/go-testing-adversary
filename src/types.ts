@@ -2,6 +2,12 @@ export interface SourceRevision {
   path: string;
   current: string;
   changedLines: Set<number>;
+  /** Zero-width head-side diff hunks produced by deletion-only changes. */
+  deletedHunks?: Array<{
+    /** Current-source line immediately preceding the deleted range (`+N,0`). */
+    afterLine: number;
+    deletedLines: number;
+  }>;
   status: "added" | "modified" | "repository";
 }
 

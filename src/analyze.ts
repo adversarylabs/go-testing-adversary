@@ -61,14 +61,35 @@ export function localizeSignal(file: SourceRevision, signal: Signal): Signal[] {
   const changedLine = [...new Set(candidates)]
     .filter((line) => file.changedLines.has(line))
     .sort((left, right) => left - right)[0];
-  if (changedLine === undefined) return [];
+  if (changedLine === undefined) {
+    if (locality.kind !== "scope") return [];
+    const deletion = (file.deletedHunks ?? []).find(
+      (hunk) => hunk.afterLine >= locality.startLine && hunk.afterLine < locality.endLine,
+    );
+    if (deletion === undefined) return [];
 
+    return [localizedSignal(file, signal, locality.startLine, {
+      ...signal.data,
+      localityChange: { kind: "deletion", ...deletion },
+    })];
+  }
+
+  return [localizedSignal(file, signal, changedLine, signal.data)];
+}
+
+function localizedSignal(
+  file: SourceRevision,
+  signal: Signal,
+  line: number,
+  data: Signal["data"],
+): Signal {
   const { endLine: _endLine, ...localized } = signal;
-  return [{
+  return {
     ...localized,
-    line: changedLine,
-    snippet: (file.current.split("\n")[changedLine - 1] ?? "").trim().slice(0, 300),
-  }];
+    line,
+    snippet: (file.current.split("\n")[line - 1] ?? "").trim().slice(0, 300),
+    data,
+  };
 }
 
 function changed(file: SourceRevision, line: number, endLine = line): boolean {

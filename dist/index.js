@@ -22105,13 +22105,27 @@ function localizeSignal(file, signal) {
     (line) => line >= locality.startLine && line <= locality.endLine
   );
   const changedLine = [...new Set(candidates)].filter((line) => file.changedLines.has(line)).sort((left, right) => left - right)[0];
-  if (changedLine === void 0) return [];
+  if (changedLine === void 0) {
+    if (locality.kind !== "scope") return [];
+    const deletion = (file.deletedHunks ?? []).find(
+      (hunk) => hunk.afterLine >= locality.startLine && hunk.afterLine < locality.endLine
+    );
+    if (deletion === void 0) return [];
+    return [localizedSignal(file, signal, locality.startLine, {
+      ...signal.data,
+      localityChange: { kind: "deletion", ...deletion }
+    })];
+  }
+  return [localizedSignal(file, signal, changedLine, signal.data)];
+}
+function localizedSignal(file, signal, line, data) {
   const { endLine: _endLine, ...localized } = signal;
-  return [{
+  return {
     ...localized,
-    line: changedLine,
-    snippet: (file.current.split("\n")[changedLine - 1] ?? "").trim().slice(0, 300)
-  }];
+    line,
+    snippet: (file.current.split("\n")[line - 1] ?? "").trim().slice(0, 300),
+    data
+  };
 }
 function changed(file, line, endLine = line) {
   if (file.status === "repository" || file.status === "added") return true;
@@ -22144,6 +22158,7 @@ async function discoverSources(ctx) {
         path: source.path,
         current: source.content,
         changedLines: /* @__PURE__ */ new Set(),
+        deletedHunks: [],
         status: "repository"
       });
       continue;
@@ -22153,6 +22168,7 @@ async function discoverSources(ctx) {
       path: source.path,
       current: source.content,
       changedLines: change.changedLines,
+      deletedHunks: change.deletedHunks,
       status: change.status
     });
   }
@@ -22165,14 +22181,14 @@ async function discoverSources(ctx) {
 async function changedSource(ctx, path) {
   const base = ctx.change?.baseRef;
   if (base === void 0 || !await existsAtRevision(ctx.repoPath, base, path)) {
-    return { changedLines: /* @__PURE__ */ new Set(), status: "added" };
+    return { changedLines: /* @__PURE__ */ new Set(), deletedHunks: [], status: "added" };
   }
   const args2 = ["diff", "--unified=0", base];
   const head = ctx.change?.headRef;
   if (head !== void 0 && !ctx.change?.worktree) args2.push(head);
   args2.push("--", path);
   const patch = await gitOutput(ctx.repoPath, args2);
-  return { changedLines: changedLineNumbers(patch), status: "modified" };
+  return { ...changeProvenance(patch), status: "modified" };
 }
 async function existsAtRevision(repoPath, revision, path) {
   try {
@@ -22191,14 +22207,20 @@ async function gitOutput(repoPath, args2) {
   });
   return result.stdout;
 }
-function changedLineNumbers(patch) {
-  const lines = /* @__PURE__ */ new Set();
-  for (const match of patch.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
-    const start2 = Number(match[1]);
-    const count = match[2] === void 0 ? 1 : Number(match[2]);
-    for (let line = start2; line < start2 + count; line += 1) lines.add(line);
+function changeProvenance(patch) {
+  const changedLines = /* @__PURE__ */ new Set();
+  const deletedHunks = [];
+  for (const match of patch.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const oldCount = match[2] === void 0 ? 1 : Number(match[2]);
+    const start2 = Number(match[3]);
+    const count = match[4] === void 0 ? 1 : Number(match[4]);
+    if (count === 0 && oldCount > 0) {
+      deletedHunks.push({ afterLine: start2, deletedLines: oldCount });
+      continue;
+    }
+    for (let line = start2; line < start2 + count; line += 1) changedLines.add(line);
   }
-  return lines;
+  return { changedLines, deletedHunks };
 }
 
 // src/navigation.ts

@@ -30,6 +30,7 @@ export async function discoverSources(ctx: RuleContext): Promise<Discovery> {
         path: source.path,
         current: source.content,
         changedLines: new Set<number>(),
+        deletedHunks: [],
         status: "repository",
       });
       continue;
@@ -40,6 +41,7 @@ export async function discoverSources(ctx: RuleContext): Promise<Discovery> {
       path: source.path,
       current: source.content,
       changedLines: change.changedLines,
+      deletedHunks: change.deletedHunks,
       status: change.status,
     });
   }
@@ -54,10 +56,14 @@ export async function discoverSources(ctx: RuleContext): Promise<Discovery> {
 async function changedSource(
   ctx: RuleContext,
   path: string,
-): Promise<Pick<SourceRevision, "changedLines" | "status">> {
+): Promise<{
+  changedLines: Set<number>;
+  deletedHunks: NonNullable<SourceRevision["deletedHunks"]>;
+  status: SourceRevision["status"];
+}> {
   const base = ctx.change?.baseRef;
   if (base === undefined || !(await existsAtRevision(ctx.repoPath, base, path))) {
-    return { changedLines: new Set<number>(), status: "added" };
+    return { changedLines: new Set<number>(), deletedHunks: [], status: "added" };
   }
 
   const args = ["diff", "--unified=0", base];
@@ -65,7 +71,7 @@ async function changedSource(
   if (head !== undefined && !ctx.change?.worktree) args.push(head);
   args.push("--", path);
   const patch = await gitOutput(ctx.repoPath, args);
-  return { changedLines: changedLineNumbers(patch), status: "modified" };
+  return { ...changeProvenance(patch), status: "modified" };
 }
 
 async function existsAtRevision(repoPath: string, revision: string, path: string): Promise<boolean> {
@@ -87,12 +93,23 @@ async function gitOutput(repoPath: string, args: string[]): Promise<string> {
   return result.stdout;
 }
 
-function changedLineNumbers(patch: string): Set<number> {
-  const lines = new Set<number>();
-  for (const match of patch.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
-    const start = Number(match[1]);
-    const count = match[2] === undefined ? 1 : Number(match[2]);
-    for (let line = start; line < start + count; line += 1) lines.add(line);
+function changeProvenance(
+  patch: string,
+): {
+  changedLines: Set<number>;
+  deletedHunks: NonNullable<SourceRevision["deletedHunks"]>;
+} {
+  const changedLines = new Set<number>();
+  const deletedHunks: NonNullable<SourceRevision["deletedHunks"]> = [];
+  for (const match of patch.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const oldCount = match[2] === undefined ? 1 : Number(match[2]);
+    const start = Number(match[3]);
+    const count = match[4] === undefined ? 1 : Number(match[4]);
+    if (count === 0 && oldCount > 0) {
+      deletedHunks.push({ afterLine: start, deletedLines: oldCount });
+      continue;
+    }
+    for (let line = start; line < start + count; line += 1) changedLines.add(line);
   }
-  return lines;
+  return { changedLines, deletedHunks };
 }
