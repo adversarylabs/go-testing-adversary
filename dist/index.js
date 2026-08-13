@@ -17152,6 +17152,17 @@ var domain = {
       recommendation: "Replace with t.Setenv (Go 1.17+)."
     },
     {
+      id: "go-test.selector-boundary-oracle",
+      title: "Selector tests preserve a trivial boundary implementation",
+      category: "correctness",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) => `${count} selector${count === 1 ? "" : "s"} are tested only with the expected value at one input boundary.`,
+      whyItMatters: "Every applicable case also passes if the selector returns the first or last input without implementing its named order-independent contract.",
+      impact: "A broken reducer can ship behind tests that stay green while exercising the intended API shape.",
+      recommendation: "Add a reversed, shuffled, or interior-winner case so neither an always-first nor an always-last implementation can satisfy the test oracle."
+    },
+    {
       id: "go-test.unconditional-skip",
       title: "Test begins with an unconditional t.Skip",
       category: "maintainability",
@@ -20949,9 +20960,9 @@ function parseAnyPredicate(steps, index, operator, textPredicates) {
     });
   } else {
     const captureName = steps[1].name;
-    const stringValue = steps[2].value;
-    const matches = /* @__PURE__ */ __name((n) => n.text === stringValue, "matches");
-    const doesNotMatch = /* @__PURE__ */ __name((n) => n.text !== stringValue, "doesNotMatch");
+    const stringValue2 = steps[2].value;
+    const matches = /* @__PURE__ */ __name((n) => n.text === stringValue2, "matches");
+    const doesNotMatch = /* @__PURE__ */ __name((n) => n.text !== stringValue2, "doesNotMatch");
     textPredicates[index].push((captures) => {
       const nodes = [];
       for (const c of captures) {
@@ -21551,29 +21562,513 @@ async function parseGo(source) {
   if (tree === null) throw new Error("Tree-sitter returned no syntax tree");
   return tree;
 }
+function walk2(node, visit) {
+  const pending = [node];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === void 0) continue;
+    visit(current);
+    for (let index = current.namedChildCount - 1; index >= 0; index -= 1) {
+      const child = current.namedChild(index);
+      if (child !== null) pending.push(child);
+    }
+  }
+}
+function descendants(node, type) {
+  const result = [];
+  walk2(node, (candidate) => {
+    if (candidate.type === type) result.push(candidate);
+  });
+  return result;
+}
+function sourceText(node, source) {
+  return source.slice(node.startIndex, node.endIndex);
+}
+
+// src/selector-oracle.ts
+import { dirname as dirname3 } from "node:path";
+var ASSERTION_NAMES = /* @__PURE__ */ new Set(["Equal", "EqualValues", "Exactly"]);
+var TESTIFY_IMPORT = /^(?:([A-Za-z_]\w*)\s+)?["`]github\.com\/stretchr\/testify\/(assert|require)["`]$/;
+var SELECTOR_WORDS = /* @__PURE__ */ new Set([
+  "min",
+  "minimum",
+  "smallest",
+  "lowest",
+  "earliest",
+  "oldest",
+  "max",
+  "maximum",
+  "largest",
+  "highest",
+  "latest",
+  "newest",
+  "canonical",
+  "canonicalize",
+  "canonicalise",
+  "best"
+]);
+var ORDER_SENSITIVE_WORDS = /* @__PURE__ */ new Set([
+  "first",
+  "last",
+  "head",
+  "tail",
+  "ordered",
+  "order",
+  "stable",
+  "preserve",
+  "next",
+  "previous"
+]);
+function selectorOracleEvidence(file, tree) {
+  if (!file.path.endsWith("_test.go")) return [];
+  const packageName = descendants(tree.rootNode, "package_identifier")[0];
+  if (packageName === void 0) return [];
+  const packageKey = `${dirname3(file.path)}\0${sourceText(packageName, file.current)}`;
+  const bySelector = /* @__PURE__ */ new Map();
+  for (const call of descendants(tree.rootNode, "call_expression")) {
+    const selector = selectorIdentity(call, file.current);
+    if (selector === void 0 || !isOrderIndependentSelector(selector.name)) continue;
+    const expected = equalityExpected(call, file.current);
+    if (expected === void 0) continue;
+    const direct = directCase(call, expected, file.current);
+    const table = direct === void 0 ? tableCases(call, expected, file.current) : void 0;
+    const cases = direct === void 0 ? table : [direct];
+    const evidence = bySelector.get(selector.identity) ?? {
+      key: `${packageKey}\0${selector.identity}`,
+      name: selector.name,
+      path: file.path,
+      source: file.current,
+      status: file.status,
+      changedLines: file.changedLines,
+      calls: [],
+      cases: [],
+      unproven: false
+    };
+    if (cases === void 0) {
+      if (!knownSingletonCall(call, file.current)) evidence.unproven = true;
+      bySelector.set(selector.identity, evidence);
+      continue;
+    }
+    if (cases.length === 0) continue;
+    evidence.calls.push(lineOf(call));
+    evidence.cases.push(...cases);
+    bySelector.set(selector.identity, evidence);
+  }
+  return [...bySelector.values()];
+}
+function selectorOracleSignals(allEvidence) {
+  const signals = [];
+  const groups = /* @__PURE__ */ new Map();
+  for (const evidence of allEvidence) {
+    const group = groups.get(evidence.key) ?? [];
+    group.push(evidence);
+    groups.set(evidence.key, group);
+  }
+  for (const group of [...groups.values()].sort((left, right) => left[0].key.localeCompare(right[0].key))) {
+    if (group.some((evidence) => evidence.unproven)) continue;
+    const cases = group.flatMap((evidence) => evidence.cases);
+    if (cases.length === 0) continue;
+    const firstSurvives = cases.every((item) => item.expected === item.first);
+    const lastSurvives = cases.every((item) => item.expected === item.last);
+    if (!firstSurvives && !lastSurvives) continue;
+    const presentation = presentationAnchor(group);
+    if (presentation === void 0) continue;
+    const boundary = firstSurvives ? "first" : "last";
+    const name2 = group[0].name;
+    signals.push({
+      ruleId: "go-test.selector-boundary-oracle",
+      path: presentation.evidence.path,
+      line: presentation.line,
+      anchors: [presentation.line],
+      message: `${name2} is asserted only where the expected value is the ${boundary} input; an always-${boundary} implementation would pass every applicable case.`,
+      snippet: (presentation.evidence.source.split("\n")[presentation.line - 1] ?? "").trim().slice(0, 300),
+      data: {
+        selector: name2,
+        survivingMutation: `always-${boundary}`,
+        applicableCases: cases.length
+      }
+    });
+  }
+  return signals;
+}
+function presentationAnchor(group) {
+  const candidates = group.flatMap((evidence) => {
+    const lines = [.../* @__PURE__ */ new Set([...evidence.calls, ...evidence.cases.flatMap((item) => item.anchors)])];
+    return lines.filter((line) => evidence.status !== "modified" || evidence.changedLines.has(line)).map((line) => ({ evidence, line }));
+  });
+  return candidates.sort(
+    (left, right) => left.evidence.path.localeCompare(right.evidence.path) || left.line - right.line
+  )[0];
+}
+function selectorIdentity(call, source) {
+  const fn = call.childForFieldName("function");
+  if (fn === null) return void 0;
+  if (fn.type === "identifier") {
+    const name2 = sourceText(fn, source);
+    return { name: name2, identity: name2 };
+  }
+  if (fn.type === "selector_expression") {
+    const field = fn.childForFieldName("field");
+    return field === null ? void 0 : {
+      name: sourceText(field, source),
+      identity: sourceText(fn, source)
+    };
+  }
+  return void 0;
+}
+function isOrderIndependentSelector(name2) {
+  const words = identifierWords(name2);
+  if (words.some((word) => ORDER_SENSITIVE_WORDS.has(word))) return false;
+  return words.some((word) => SELECTOR_WORDS.has(word));
+}
+function identifierWords(name2) {
+  return name2.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+function equalityExpected(call, source) {
+  let current = call;
+  for (let depth = 0; current !== null && depth < 5; depth += 1, current = current.parent) {
+    if (current.type === "binary_expression") {
+      const expected2 = failingComparisonExpected(current, source, (candidate) => contains(candidate, call));
+      if (expected2 !== void 0) return expected2;
+    }
+    if (current.type !== "call_expression") continue;
+    const expected = knownAssertionExpected(current, source, (candidate) => contains(candidate, call));
+    if (expected !== void 0) return expected;
+  }
+  return immediatelyAssertedAssignment(call, source);
+}
+function immediatelyAssertedAssignment(call, source) {
+  const declaration = ancestor(call, "short_var_declaration");
+  if (declaration === void 0) return void 0;
+  const left = declaration.childForFieldName("left");
+  const right = declaration.childForFieldName("right");
+  if (left === null || right === null) return void 0;
+  const rightValues = right.type === "expression_list" ? right.namedChildren : [right];
+  const callIndex = rightValues.findIndex((value) => contains(value, call));
+  const leftValues = left.type === "expression_list" ? left.namedChildren : [left];
+  const result = leftValues[callIndex];
+  if (result?.type !== "identifier") return void 0;
+  const variable = sourceText(result, source);
+  const statements = declaration.parent;
+  if (statements?.type !== "statement_list") return void 0;
+  const index = statements.namedChildren.findIndex(
+    (statement) => statement.startIndex === declaration.startIndex && statement.endIndex === declaration.endIndex
+  );
+  const next = statements.namedChildren[index + 1];
+  if (index < 0 || next === void 0) return void 0;
+  for (const assertion of descendants(next, "call_expression")) {
+    const expected = knownAssertionExpected(
+      assertion,
+      source,
+      (candidate) => candidate.type === "identifier" && sourceText(candidate, source) === variable
+    );
+    if (expected !== void 0) return expected;
+  }
+  for (const comparison of descendants(next, "binary_expression")) {
+    const expected = failingComparisonExpected(
+      comparison,
+      source,
+      (candidate) => candidate.type === "identifier" && sourceText(candidate, source) === variable
+    );
+    if (expected !== void 0) return expected;
+  }
+  return void 0;
+}
+function knownAssertionExpected(assertion, source, isActual) {
+  const fn = assertion.childForFieldName("function");
+  const args2 = assertion.childForFieldName("arguments")?.namedChildren ?? [];
+  if (fn === null || args2.length < 3) return void 0;
+  const functionName = sourceText(fn, source);
+  const [receiver, method, ...extra] = functionName.split(".");
+  if (extra.length > 0 || receiver === void 0 || method === void 0) return void 0;
+  if (!testifyReceivers(assertion, source).has(receiver) || !ASSERTION_NAMES.has(method)) return void 0;
+  return isActual(args2[2]) ? args2[1] : void 0;
+}
+function testifyReceivers(node, source) {
+  let root = node;
+  while (root.parent !== null) root = root.parent;
+  const receivers = /* @__PURE__ */ new Set();
+  for (const spec of descendants(root, "import_spec")) {
+    const match = sourceText(spec, source).trim().match(TESTIFY_IMPORT);
+    if (match === null) continue;
+    const receiver = match[1] ?? match[2];
+    if (receiver !== void 0 && receiver !== "_" && receiver !== ".") receivers.add(receiver);
+  }
+  return receivers;
+}
+function failingComparisonExpected(comparison, source, isActual) {
+  if (binaryOperator(comparison, source) !== "!=") return void 0;
+  const conditional = ancestor(comparison, "if_statement");
+  const condition = conditional?.childForFieldName("condition");
+  const consequence = conditional?.childForFieldName("consequence");
+  if (conditional === void 0 || condition == null || consequence == null || !contains(condition, comparison) || !hasTestingFailure(consequence, comparison, source)) return void 0;
+  const left = comparison.childForFieldName("left");
+  const right = comparison.childForFieldName("right");
+  if (left === null || right === null) return void 0;
+  if (isActual(left)) return scalarNode(right) ? right : void 0;
+  if (isActual(right)) return scalarNode(left) ? left : void 0;
+  return void 0;
+}
+function hasTestingFailure(branch, context, source) {
+  const testVariables = testingVariables(context, source);
+  if (testVariables.size === 0) return false;
+  const methods = /* @__PURE__ */ new Set(["Fatal", "Fatalf", "Error", "Errorf", "Fail", "FailNow"]);
+  return descendants(branch, "call_expression").some((call) => {
+    const fn = call.childForFieldName("function");
+    if (fn?.type !== "selector_expression") return false;
+    const operand = fn.childForFieldName("operand");
+    const field = fn.childForFieldName("field");
+    return operand?.type === "identifier" && field !== null && testVariables.has(sourceText(operand, source)) && methods.has(sourceText(field, source));
+  });
+}
+function testingVariables(node, source) {
+  let current = node;
+  while (current !== null && current.type !== "function_declaration" && current.type !== "func_literal") {
+    current = current.parent;
+  }
+  const parameters = current?.childForFieldName("parameters");
+  if (parameters === null || parameters === void 0) return /* @__PURE__ */ new Set();
+  const names = /* @__PURE__ */ new Set();
+  const pattern = /([A-Za-z_]\w*)\s+\*testing\.(?:T|B)\b/g;
+  for (const match of sourceText(parameters, source).matchAll(pattern)) {
+    if (match[1] !== void 0) names.add(match[1]);
+  }
+  return names;
+}
+function binaryOperator(node, source) {
+  const left = node.childForFieldName("left");
+  const right = node.childForFieldName("right");
+  if (left === null || right === null) return "";
+  return source.slice(left.endIndex, right.startIndex).trim();
+}
+function directCase(call, expectedNode, source) {
+  const expected = scalarValue(expectedNode, source);
+  if (expected === void 0) return void 0;
+  const args2 = call.childForFieldName("arguments")?.namedChildren ?? [];
+  for (const argument of args2) {
+    const elements = literalElements(argument, source);
+    if (elements !== void 0 && elements.length >= 2) {
+      return {
+        expected,
+        first: elements[0],
+        last: elements.at(-1),
+        line: lineOf(argument),
+        anchors: [lineOf(argument), ...literalAnchors(argument), lineOf(expectedNode)]
+      };
+    }
+  }
+  if (args2.length >= 2) {
+    const elements = args2.map((argument) => scalarValue(argument, source));
+    if (elements.every((item) => item !== void 0)) {
+      return {
+        expected,
+        first: elements[0],
+        last: elements.at(-1),
+        line: lineOf(args2[0]),
+        anchors: [...args2.map(lineOf), lineOf(expectedNode)]
+      };
+    }
+  }
+  return void 0;
+}
+function tableCases(call, expectedNode, source) {
+  const args2 = call.childForFieldName("arguments")?.namedChildren ?? [];
+  if (args2.length !== 1) return void 0;
+  const inputField = selectedField(args2[0], source);
+  const expectedField = selectedField(expectedNode, source);
+  if (inputField === void 0 || expectedField === void 0 || inputField.owner !== expectedField.owner) {
+    return void 0;
+  }
+  const loop = ancestor(call, "for_statement");
+  const range = loop?.namedChildren.find((child) => child.type === "range_clause");
+  const right = range?.childForFieldName("right");
+  if (range === void 0 || right === null || right === void 0 || loop === void 0) return void 0;
+  const table = tableComposite(loop, right, source);
+  if (table === void 0) return void 0;
+  const left = range.childForFieldName("left");
+  if (left === null || !sourceText(left, source).split(",").map((item) => item.trim()).includes(inputField.owner)) {
+    return void 0;
+  }
+  const body2 = table.childForFieldName("body");
+  if (body2 === null) return void 0;
+  const cases = [];
+  for (const rowElement of body2.namedChildren) {
+    const row = unwrapLiteral(rowElement);
+    if (row?.type !== "literal_value") return void 0;
+    const fields = keyedFields(row, source);
+    const input = fields.get(inputField.field);
+    const expected = fields.get(expectedField.field);
+    if (input === void 0 || expected === void 0) return void 0;
+    const elements = literalElements(input, source);
+    const expectedValue = scalarValue(expected, source);
+    if (elements === void 0 || expectedValue === void 0) return void 0;
+    if (elements.length < 2) continue;
+    cases.push({
+      expected: expectedValue,
+      first: elements[0],
+      last: elements.at(-1),
+      line: lineOf(rowElement),
+      anchors: [lineOf(rowElement), lineOf(input), ...literalAnchors(input), lineOf(expected)]
+    });
+  }
+  return cases;
+}
+function knownSingletonCall(call, source) {
+  const args2 = call.childForFieldName("arguments")?.namedChildren ?? [];
+  if (args2.length !== 1) return false;
+  const elements = literalElements(args2[0], source);
+  return elements?.length === 1 || scalarValue(args2[0], source) !== void 0;
+}
+function tableComposite(loop, rangeRight, source) {
+  if (rangeRight.type === "composite_literal") return rangeRight;
+  if (rangeRight.type !== "identifier") return void 0;
+  const variable = sourceText(rangeRight, source);
+  const fn = ancestor(loop, "function_declaration");
+  if (fn === void 0) return void 0;
+  for (const declaration of descendants(fn, "short_var_declaration")) {
+    if (declaration.startIndex >= loop.startIndex) continue;
+    const left = declaration.childForFieldName("left");
+    const right = declaration.childForFieldName("right");
+    if (left === null || right === null || sourceText(left, source).trim() !== variable) continue;
+    const values = right.type === "expression_list" ? right.namedChildren : [right];
+    if (values.length === 1 && values[0]?.type === "composite_literal") return values[0];
+  }
+  return void 0;
+}
+function selectedField(node, source) {
+  if (node.type !== "selector_expression") return void 0;
+  const owner = node.childForFieldName("operand");
+  const field = node.childForFieldName("field");
+  if (owner?.type !== "identifier" || field === null) return void 0;
+  return { owner: sourceText(owner, source), field: sourceText(field, source) };
+}
+function keyedFields(row, source) {
+  const fields = /* @__PURE__ */ new Map();
+  for (const element of row.namedChildren) {
+    const keyed = unwrapLiteral(element);
+    if (keyed?.type !== "keyed_element") continue;
+    const key = keyed.childForFieldName("key");
+    const value = keyed.childForFieldName("value");
+    if (key === null || value === null) continue;
+    fields.set(sourceText(unwrapLiteral(key) ?? key, source), unwrapLiteral(value) ?? value);
+  }
+  return fields;
+}
+function literalElements(node, source) {
+  if (node.type === "interpreted_string_literal" || node.type === "raw_string_literal") {
+    const value = stringValue(node, source);
+    if (value === void 0 || !value.includes(",")) return void 0;
+    const elements2 = value.split(",").map((item) => item.trim()).filter(Boolean);
+    return elements2;
+  }
+  if (node.type !== "composite_literal") return void 0;
+  const body2 = node.childForFieldName("body");
+  if (body2 === null) return void 0;
+  const elements = [];
+  for (const child of body2.namedChildren) {
+    const value = scalarValue(unwrapLiteral(child) ?? child, source);
+    if (value === void 0) return void 0;
+    elements.push(value);
+  }
+  return elements;
+}
+function literalAnchors(node) {
+  if (node.type === "interpreted_string_literal" || node.type === "raw_string_literal") return [lineOf(node)];
+  if (node.type !== "composite_literal") return [lineOf(node)];
+  const body2 = node.childForFieldName("body");
+  if (body2 === null) return [lineOf(node)];
+  return body2.namedChildren.map((child) => lineOf(unwrapLiteral(child) ?? child));
+}
+function scalarValue(node, source) {
+  const value = unwrapLiteral(node) ?? node;
+  if (value.type === "interpreted_string_literal" || value.type === "raw_string_literal") {
+    return stringValue(value, source);
+  }
+  if (["int_literal", "float_literal", "rune_literal", "true", "false", "nil"].includes(value.type)) {
+    return sourceText(value, source).replaceAll("_", "");
+  }
+  return void 0;
+}
+function stringValue(node, source) {
+  const text = sourceText(node, source);
+  if (node.type === "raw_string_literal") return text.slice(1, -1);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return void 0;
+  }
+}
+function scalarNode(node) {
+  return scalarValueShape(unwrapLiteral(node) ?? node);
+}
+function scalarValueShape(node) {
+  return [
+    "interpreted_string_literal",
+    "raw_string_literal",
+    "int_literal",
+    "float_literal",
+    "rune_literal",
+    "true",
+    "false",
+    "nil",
+    "selector_expression"
+  ].includes(node.type);
+}
+function unwrapLiteral(node) {
+  let current = node;
+  while (current !== void 0 && current.type === "literal_element" && current.namedChildCount === 1) {
+    current = current.namedChild(0) ?? void 0;
+  }
+  return current;
+}
+function contains(parent, child) {
+  return parent.startIndex <= child.startIndex && parent.endIndex >= child.endIndex;
+}
+function ancestor(node, type) {
+  let current = node.parent;
+  while (current !== null) {
+    if (current.type === type) return current;
+    current = current.parent;
+  }
+  return void 0;
+}
+function lineOf(node) {
+  return node.startPosition.row + 1;
+}
 
 // src/analyze.ts
 async function analyzeDiscovery(discovery) {
   const signals = [];
   const positives = [];
   const parseErrors = [];
+  const selectorEvidence = [];
   for (const file of discovery.files) {
     try {
       if (file.path.endsWith(".go")) {
         const tree = await parseGo(file.current);
         try {
           if (tree.rootNode.hasError) throw new Error("Go source contains syntax errors");
+          const result2 = domain.analyze(file);
+          signals.push(...result2.signals.filter((item) => changedSignal(file, item)));
+          selectorEvidence.push(...selectorOracleEvidence(file, tree));
+          positives.push(...result2.positives.filter((item) => changed(file, item.line)));
         } finally {
           tree.delete();
         }
+        continue;
       }
       const result = domain.analyze(file);
-      signals.push(...result.signals.filter((item) => changed(file, item.line, item.endLine)));
+      signals.push(...result.signals.filter((item) => changedSignal(file, item)));
       positives.push(...result.positives.filter((item) => changed(file, item.line)));
     } catch (error) {
       parseErrors.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
     }
   }
+  const files = new Map(discovery.files.map((file) => [file.path, file]));
+  signals.push(...selectorOracleSignals(selectorEvidence).filter((signal) => {
+    const file = files.get(signal.path);
+    return file !== void 0 && changedSignal(file, signal);
+  }));
   return {
     mode: discovery.mode,
     ...discovery.base === void 0 ? {} : { base: discovery.base },
@@ -21582,6 +22077,12 @@ async function analyzeDiscovery(discovery) {
     positives: positives.sort(byLocation),
     parseErrors: parseErrors.sort((left, right) => left.path.localeCompare(right.path))
   };
+}
+function changedSignal(file, signal) {
+  if (signal.anchors !== void 0) {
+    return signal.anchors.some((line) => changed(file, line));
+  }
+  return changed(file, signal.line, signal.endLine);
 }
 function changed(file, line, endLine = line) {
   if (file.status === "repository" || file.status === "added") return true;
@@ -21809,7 +22310,7 @@ function addPositives(ctx, analysis) {
 function createApp() {
   const app = new Adversary({
     name: domain.name,
-    version: "0.0.2",
+    version: "0.0.9",
     review: { maximumFindings: 8, minimumConfidence: "medium" }
   });
   app.rule(`${domain.name}.review`, async (ctx) => {

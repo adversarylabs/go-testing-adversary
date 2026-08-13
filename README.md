@@ -8,6 +8,7 @@ It currently reviews:
 - parallel tests that mutate process-wide environment state
 - process-global environment mutation without test-scoped restoration
 - wall-clock sleeping used as synchronization
+- direct minimum/maximum/canonical selector tests whose cases preserve a trivial first/last implementation
 
 Related evidence is grouped by remediation, and overall risk follows the most operationally important defect rather than the number of findings.
 
