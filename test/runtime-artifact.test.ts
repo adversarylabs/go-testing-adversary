@@ -32,6 +32,7 @@ test("the published runtime executes without node_modules", async () => {
 
   const bundle = await readFile(entrypoint, "utf8");
   assert.doesNotMatch(bundle, /from\s+["'](?:@adversarylabs\/sdk|web-tree-sitter)["']/);
+  assert.doesNotMatch(bundle, /\/Users\/marc|\/private\/tmp\/go-testing-issue14/);
 
   await execute(process.execPath, [entrypoint], {
     cwd: artifact,
@@ -46,5 +47,6 @@ test("the published runtime executes without node_modules", async () => {
   const envelope = JSON.parse(await readFile(output, "utf8"));
   assert.equal(envelope.protocolVersion, 1);
   assert.equal(envelope.result.adversary.name, "go/testing");
+  assert.equal(envelope.result.adversary.version, "0.0.9");
   assert.deepEqual(envelope.result.findings, []);
 });

@@ -1,12 +1,13 @@
 import { domain } from "./domain.js";
 import { parseGo } from "./parser.js";
-import { selectorOracleSignals } from "./selector-oracle.js";
+import { selectorOracleEvidence, selectorOracleSignals, type SelectorOracleEvidence } from "./selector-oracle.js";
 import { type Analysis, type Discovery, type PositiveSignal, type Signal, type SourceRevision } from "./types.js";
 
 export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> {
   const signals: Signal[] = [];
   const positives: PositiveSignal[] = [];
   const parseErrors: Analysis["parseErrors"] = [];
+  const selectorEvidence: SelectorOracleEvidence[] = [];
 
   for (const file of discovery.files) {
     try {
@@ -15,10 +16,8 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
         try {
           if (tree.rootNode.hasError) throw new Error("Go source contains syntax errors");
           const result = domain.analyze(file);
-          signals.push(
-            ...[...result.signals, ...selectorOracleSignals(file, tree)]
-              .filter((item) => changedSignal(file, item)),
-          );
+          signals.push(...result.signals.filter((item) => changedSignal(file, item)));
+          selectorEvidence.push(...selectorOracleEvidence(file, tree));
           positives.push(...result.positives.filter((item) => changed(file, item.line)));
         } finally {
           tree.delete();
@@ -32,6 +31,12 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
       parseErrors.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
     }
   }
+
+  const files = new Map(discovery.files.map((file) => [file.path, file]));
+  signals.push(...selectorOracleSignals(selectorEvidence).filter((signal) => {
+    const file = files.get(signal.path);
+    return file !== undefined && changedSignal(file, signal);
+  }));
 
   return {
     mode: discovery.mode,
