@@ -51,6 +51,17 @@ Public grounding: `go vet` testinggoroutine analyzer, `testing` package document
 
 ## Medium
 
+### `go-test.privileged-host-path-mutation`
+
+| | |
+| --- | --- |
+| **What** | Changed Go tests write, delete, rename, chmod, or otherwise mutate a proven path under `/etc`, `/usr`, `/bin`, `/sbin`, or `/var/lib` |
+| **Why** | Host-global system paths can contain pre-existing state and require elevated workers; best-effort cleanup does not make overwrites or concurrent interference safe |
+| **Looks for** | Proven standard-library filesystem mutation calls, directly executed `exec.Command(...).Run/Output/CombinedOutput/Start` mutations, and direct `OpenFile` write-flag expressions whose path literal or straight-line same-scope provenance is rooted in a privileged tree |
+| **Stays quiet when** | The path is rooted at `t.TempDir`; the operation only reads; `/etc`-like text is an inert fixture; the path is only an argument inside an explicitly launched container; a command is assigned before execution; `OpenFile` flags or path provenance cross conditional, loop, or switch flow |
+| **Public examples** | project-zot/zot#4317 review of tests creating and deleting `/etc/containers/certs.d/...` state |
+| **Remediation** | Redirect the tested dependency to a tree rooted at `t.TempDir`, or execute it inside an explicitly isolated filesystem namespace |
+
 ### `go-test.sleep-sync`
 
 | | |

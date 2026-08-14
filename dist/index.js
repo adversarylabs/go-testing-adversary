@@ -2238,8 +2238,8 @@ var require_resolve = __commonJS({
       }
       return count;
     }
-    function getFullPath(resolver, id = "", normalize) {
-      if (normalize !== false)
+    function getFullPath(resolver, id = "", normalize2) {
+      if (normalize2 !== false)
         id = normalizeId(id);
       const p = resolver.parse(id);
       return _getFullPath(resolver, p);
@@ -3635,7 +3635,7 @@ var require_fast_uri = __commonJS({
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
-    function normalize(uri, options) {
+    function normalize2(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
         normalizeString(uri, options);
@@ -3928,7 +3928,7 @@ var require_fast_uri = __commonJS({
     }
     var fastUri = {
       SCHEMES,
-      normalize,
+      normalize: normalize2,
       resolve: resolve3,
       resolveComponent,
       equal,
@@ -17173,6 +17173,17 @@ var domain = {
       recommendation: "Replace with t.Setenv (Go 1.17+)."
     },
     {
+      id: "go-test.privileged-host-path-mutation",
+      title: "Test mutates a privileged host path",
+      category: "reliability",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) => `${count} test mutation${count === 1 ? "" : "s"} target privileged host filesystem state.`,
+      whyItMatters: "Writing or deleting host-global system paths makes tests destructive, privilege-dependent, and non-hermetic even when cleanup is attempted.",
+      impact: "Tests can overwrite pre-existing machine state, interfere with concurrent runs, or require elevated CI workers.",
+      recommendation: "Redirect the dependency to a tree rooted at t.TempDir, or run it inside an explicitly isolated filesystem namespace."
+    },
+    {
       id: "go-test.selector-boundary-oracle",
       title: "Selector tests preserve a trivial boundary implementation",
       category: "correctness",
@@ -21624,6 +21635,483 @@ function sourceText(node, source) {
   return source.slice(node.startIndex, node.endIndex);
 }
 
+// src/privileged-host-path.ts
+import { basename as basename2, posix } from "node:path";
+var privilegedRoots = ["/etc", "/usr", "/bin", "/sbin", "/var/lib"];
+var osTargetArguments = /* @__PURE__ */ new Map([
+  ["Chmod", [0]],
+  ["Chown", [0]],
+  ["Chtimes", [0]],
+  ["Create", [0]],
+  ["CreateTemp", [0]],
+  ["Lchown", [0]],
+  ["Link", [1]],
+  ["Mkdir", [0]],
+  ["MkdirAll", [0]],
+  ["MkdirTemp", [0]],
+  ["Remove", [0]],
+  ["RemoveAll", [0]],
+  ["Rename", [0, 1]],
+  ["Symlink", [1]],
+  ["Truncate", [0]],
+  ["WriteFile", [0]]
+]);
+var mutatingCommands = /* @__PURE__ */ new Set([
+  "chmod",
+  "chown",
+  "chgrp",
+  "cp",
+  "install",
+  "ln",
+  "mkdir",
+  "mv",
+  "rm",
+  "rmdir",
+  "tee",
+  "touch",
+  "truncate"
+]);
+function privilegedHostPathSignals(file, tree) {
+  if (!file.path.endsWith("_test.go")) return [];
+  const aliases = importAliases(tree.rootNode, file.current);
+  const osAlias = aliases.get("os");
+  const execAlias = aliases.get("os/exec");
+  const joinAliases = new Set([aliases.get("path"), aliases.get("path/filepath")].filter((item) => item !== void 0));
+  const signals = [];
+  walk2(tree.rootNode, (node) => {
+    if (node.type !== "call_expression") return;
+    if (insideUnprovenFunctionLiteral(node)) return;
+    const fn = node.childForFieldName("function");
+    const args2 = node.childForFieldName("arguments")?.namedChildren ?? [];
+    if (fn === null) return;
+    const directFunction = unwrapParentheses(fn);
+    const functionName = sourceText(directFunction, file.current);
+    let operation;
+    let candidates = [];
+    let executionAnchors = [];
+    if (osAlias !== void 0 && !identifierShadowed(osAlias, node, file.current) && functionName.startsWith(`${osAlias}.`)) {
+      operation = functionName.slice(osAlias.length + 1);
+      const positions = osTargetArguments.get(operation);
+      if (positions === void 0) {
+        if (operation !== "OpenFile" || !directOpenFileMutates(args2[1], file.current, osAlias)) return;
+        candidates = args2[0] === void 0 ? [] : [{ node: args2[0] }];
+      } else {
+        candidates = positions.flatMap((position) => args2[position] === void 0 ? [] : [{ node: args2[position] }]);
+      }
+    } else if (execAlias !== void 0 && !identifierShadowed(execAlias, node, file.current) && (functionName === `${execAlias}.Command` || functionName === `${execAlias}.CommandContext`)) {
+      const offset = functionName.endsWith("CommandContext") ? 1 : 0;
+      const command = stringLiteral(args2[offset], file.current);
+      const executedAt = command === void 0 || !trustedCommand(command) ? void 0 : commandExecutionAnchors(node, file.current);
+      if (command === void 0 || executedAt === void 0) return;
+      operation = `exec ${basename2(command)}`;
+      candidates = commandTargets(basename2(command), args2.slice(offset + 1), file.current);
+      executionAnchors = executedAt;
+    } else {
+      return;
+    }
+    for (const candidate of candidates) {
+      const proof = candidate.literal === void 0 ? resolvePrivilegedPath(candidate.node, node, file.current, joinAliases, /* @__PURE__ */ new Set()) : literalProof(candidate.literal, candidate.node);
+      if (proof === void 0) continue;
+      const callLine = node.startPosition.row + 1;
+      const pathLine = candidate.node.startPosition.row + 1;
+      const commandLine = args2[functionName.endsWith("CommandContext") ? 1 : 0]?.startPosition.row;
+      const anchors = [.../* @__PURE__ */ new Set([
+        callLine,
+        ...nodeLines(candidate.node),
+        ...executionAnchors,
+        ...commandLine === void 0 ? [] : [commandLine + 1],
+        ...proof.anchors
+      ])].sort((left, right) => left - right);
+      const scope = enclosingFunctionName(node, file.current);
+      signals.push({
+        ruleId: "go-test.privileged-host-path-mutation",
+        path: file.path,
+        line: callLine,
+        locality: { kind: "direct", anchors },
+        message: `Test ${operation} mutates the host's ${proof.root} tree instead of test-owned storage.`,
+        snippet: sourceText(node, file.current).trim().slice(0, 300),
+        data: {
+          operation,
+          privilegedRoot: proof.root,
+          pathExpression: proof.expression,
+          callLine,
+          pathLine,
+          fingerprint: `${scope}\0${operation}\0${proof.expression}\0${normalize(sourceText(node, file.current))}`
+        }
+      });
+      break;
+    }
+  });
+  return signals;
+}
+function insideUnprovenFunctionLiteral(node) {
+  for (let current = node.parent; current !== null; current = current.parent) {
+    if (current.type !== "func_literal") continue;
+    let invoked = current;
+    while (invoked.parent?.type === "parenthesized_expression") invoked = invoked.parent;
+    const call = invoked.parent;
+    if (call?.type !== "call_expression" || call.childForFieldName("function")?.id !== invoked.id) return true;
+  }
+  return false;
+}
+function importAliases(root, source) {
+  const aliases = /* @__PURE__ */ new Map();
+  walk2(root, (node) => {
+    if (node.type !== "import_spec") return;
+    const pathNode = node.childForFieldName("path") ?? node.namedChildren.at(-1) ?? null;
+    if (pathNode === null) return;
+    const path = stringLiteral(pathNode, source);
+    if (path === void 0) return;
+    const nameNode = node.childForFieldName("name");
+    const alias = nameNode === null ? basename2(path) : sourceText(nameNode, source);
+    if (alias !== "." && alias !== "_") aliases.set(path, alias);
+  });
+  return aliases;
+}
+function resolvePrivilegedPath(expression, use, source, joinAliases, seen) {
+  const literal = stringLiteral(expression, source);
+  if (literal !== void 0) return literalProof(literal, expression);
+  if (expression.type === "identifier") {
+    const name2 = sourceText(expression, source);
+    const key = `${name2}:${expression.startIndex}`;
+    if (seen.has(key)) return void 0;
+    seen.add(key);
+    const binding = visibleBinding(name2, use, source);
+    if (binding === void 0) return void 0;
+    if (hasConditionalAssignment(name2, use, binding, source) || hasNestedFunctionAssignment(name2, use, binding, source)) return void 0;
+    const proof = resolvePrivilegedPath(binding, binding, source, joinAliases, new Set(seen));
+    return proof === void 0 ? void 0 : { ...proof, anchors: [...proof.anchors, ...nodeLines(binding)] };
+  }
+  if (expression.type === "binary_expression") {
+    const left = expression.childForFieldName("left");
+    const right = expression.childForFieldName("right");
+    const operator = expression.childForFieldName("operator");
+    if (left !== null && right !== null && operator !== null && sourceText(operator, source) === "+") {
+      const prefix = resolvePrivilegedPath(left, use, source, joinAliases, seen);
+      const suffix = stringLiteral(right, source);
+      if (prefix === void 0 || suffix === void 0) return void 0;
+      return literalProof(`${prefix.expression}${suffix}`, expression);
+    }
+  }
+  if (expression.type === "call_expression") {
+    const fn = expression.childForFieldName("function");
+    const args2 = expression.childForFieldName("arguments")?.namedChildren ?? [];
+    if (fn !== null) {
+      const name2 = sourceText(fn, source);
+      const joinAlias = [...joinAliases].find((alias) => name2 === `${alias}.Join`);
+      if (joinAlias !== void 0 && !identifierShadowed(joinAlias, expression, source) && args2.length > 0) {
+        const first = resolvePrivilegedPath(args2[0], use, source, joinAliases, seen);
+        if (first === void 0) return void 0;
+        const suffixes = args2.slice(1).map((argument) => stringLiteral(argument, source));
+        if (suffixes.some((part) => part === void 0)) return void 0;
+        return literalProof(posix.join(first.expression, ...suffixes), expression);
+      }
+    }
+  }
+  return void 0;
+}
+function visibleBinding(name2, use, source) {
+  let child = use;
+  for (let scope = use.parent; scope !== null; child = scope, scope = scope.parent) {
+    if (scope.type === "statement_list" || scope.type === "source_file") {
+      let result;
+      for (const statement of scope.namedChildren) {
+        if (statement.startIndex >= child.startIndex) break;
+        const binding = directBinding(statement, name2, source);
+        if (binding !== void 0) result = binding;
+      }
+      if (result !== void 0) return result;
+    }
+    const clause = controlClauseBinding(scope, name2, source);
+    if (clause !== void 0) return clause;
+  }
+  return void 0;
+}
+function directBinding(statement, name2, source) {
+  if (statement.type === "short_var_declaration" || statement.type === "assignment_statement" || statement.type === "receive_statement") {
+    const left = fieldExpressions(statement.childForFieldName("left"));
+    const right = fieldExpressions(statement.childForFieldName("right"));
+    const index = left.findIndex((item) => item.type === "identifier" && sourceText(item, source) === name2);
+    return index < 0 ? void 0 : right[index];
+  }
+  if (statement.type === "var_declaration" || statement.type === "const_declaration") {
+    for (const spec of statement.namedChildren) {
+      if (spec.type !== "var_spec" && spec.type !== "const_spec") continue;
+      const nameNode = spec.childForFieldName("name");
+      const names = nameNode === null ? spec.namedChildren.filter((item) => item.type === "identifier") : nameNode.type === "identifier" ? [nameNode] : nameNode.namedChildren;
+      const values = fieldExpressions(spec.childForFieldName("value"));
+      const index = names.findIndex((item) => sourceText(item, source) === name2);
+      if (index >= 0) return values[index];
+    }
+  }
+  return void 0;
+}
+function literalProof(value, node) {
+  const normalized = posix.normalize(value);
+  const root = privilegedRoots.find((candidate) => normalized === candidate || normalized.startsWith(`${candidate}/`));
+  return root === void 0 ? void 0 : { root, anchors: nodeLines(node), expression: normalized };
+}
+function commandTargets(command, args2, source) {
+  const operands = [];
+  let targetDirectory;
+  let installDirectoryMode = false;
+  let parsingOptions = true;
+  const referenceOption = ["chmod", "chown", "touch", "truncate"].includes(command);
+  for (let index = 0; index < args2.length; index += 1) {
+    const node = args2[index];
+    const literal = stringLiteral(node, source);
+    if (parsingOptions && literal === "--") {
+      parsingOptions = false;
+      continue;
+    }
+    if (!parsingOptions || literal === void 0 || !literal.startsWith("-") || literal === "-") {
+      operands.push(node);
+      continue;
+    }
+    if (referenceOption && (literal === "--reference" || ["touch", "truncate"].includes(command) && literal === "-r")) {
+      index += 1;
+      continue;
+    }
+    if (referenceOption && literal.startsWith("--reference=")) continue;
+    if (["touch", "truncate"].includes(command) && /^-[^-]*r/.test(literal)) {
+      const reference = literal.indexOf("r");
+      if (reference === literal.length - 1) index += 1;
+      continue;
+    }
+    if (!["cp", "install", "ln"].includes(command)) continue;
+    if (literal === "-S" || literal === "--suffix") {
+      index += 1;
+      continue;
+    }
+    if (literal.startsWith("--suffix=")) continue;
+    if (literal === "-t" || literal === "--target-directory") {
+      const target = args2[index + 1];
+      if (target !== void 0) targetDirectory = { node: target };
+      index += 1;
+      continue;
+    }
+    if (literal.startsWith("--target-directory=")) {
+      targetDirectory = { node, literal: literal.slice("--target-directory=".length) };
+      continue;
+    }
+    if (command === "install" && (literal === "-d" || literal === "--directory")) {
+      installDirectoryMode = true;
+      continue;
+    }
+    const short = literal.match(/^-(?!-)(.+)$/)?.[1];
+    if (short === void 0) continue;
+    for (let position = 0; position < short.length; position += 1) {
+      const option = short[position];
+      if (option === "S") {
+        if (position === short.length - 1) index += 1;
+        break;
+      }
+      if (option === "t") {
+        const attached = short.slice(position + 1);
+        if (attached.length > 0) targetDirectory = { node, literal: attached };
+        else {
+          const target = args2[index + 1];
+          if (target !== void 0) targetDirectory = { node: target };
+          index += 1;
+        }
+        break;
+      }
+      if (command === "install" && option === "d") installDirectoryMode = true;
+    }
+  }
+  if (["cp", "install", "ln"].includes(command)) {
+    if (targetDirectory !== void 0) return [targetDirectory];
+    if (command === "install" && installDirectoryMode) return operands.map((node) => ({ node }));
+    return operands.at(-1) === void 0 ? [] : [{ node: operands.at(-1) }];
+  }
+  return operands.map((node) => ({ node }));
+}
+function unwrapParentheses(node) {
+  let current = node;
+  while (current.type === "parenthesized_expression" && current.namedChildren[0] !== void 0) current = current.namedChildren[0];
+  return current;
+}
+function commandExecutionAnchors(command, source) {
+  const executionMethods = /* @__PURE__ */ new Set(["CombinedOutput", "Output", "Run", "Start"]);
+  let operand = command;
+  while (operand.parent?.type === "parenthesized_expression") operand = operand.parent;
+  const selectorNode = operand.parent;
+  const selector = selectorNode?.parent;
+  if (selectorNode?.type === "selector_expression" && selector?.type === "call_expression" && executionMethods.has(sourceText(selectorNode.childForFieldName("field") ?? selectorNode, source).split(".").at(-1) ?? "")) {
+    const field = selectorNode.childForFieldName("field");
+    return field === null ? [selector.startPosition.row + 1] : nodeLines(field);
+  }
+  return void 0;
+}
+function identifierShadowed(name2, use, source) {
+  for (let current = use.parent; current !== null; current = current.parent) {
+    if (current.type === "function_declaration" || current.type === "method_declaration" || current.type === "func_literal") {
+      for (const field of ["receiver", "parameters", "result"]) {
+        const declaration = current.childForFieldName(field);
+        if (declaration !== null && declaredNames(declaration, source).has(name2)) return true;
+      }
+    }
+  }
+  return visibleBinding(name2, use, source) !== void 0;
+}
+function trustedCommand(command) {
+  const name2 = basename2(command);
+  return mutatingCommands.has(name2) && (command === name2 || command === `/bin/${name2}` || command === `/usr/bin/${name2}`);
+}
+function declaredNames(node, source) {
+  const result = /* @__PURE__ */ new Set();
+  walk2(node, (candidate) => {
+    if (candidate.type !== "parameter_declaration" && candidate.type !== "variadic_parameter_declaration") return;
+    const name2 = candidate.childForFieldName("name");
+    if (name2 === null) return;
+    if (name2.type === "identifier") result.add(sourceText(name2, source));
+    for (const child of name2.namedChildren) if (child.type === "identifier") result.add(sourceText(child, source));
+  });
+  return result;
+}
+function hasConditionalAssignment(name2, use, baseline, source) {
+  let found = false;
+  let child = use;
+  for (let scope = use.parent; scope !== null; child = scope, scope = scope.parent) {
+    if (scope.type !== "statement_list") continue;
+    for (const statement of scope.namedChildren) {
+      if (statement.startIndex >= child.startIndex) break;
+      if (!["if_statement", "for_statement", "expression_switch_statement", "type_switch_statement", "select_statement"].includes(statement.type)) continue;
+      walkExecutable(statement, (candidate) => {
+        if (candidate.type !== "assignment_statement") return;
+        const operator = candidate.childForFieldName("operator");
+        if (operator !== null && sourceText(operator, source) !== "=") return;
+        const left = candidate.childForFieldName("left")?.namedChildren ?? [];
+        const right = candidate.childForFieldName("right")?.namedChildren ?? [];
+        const index = left.findIndex((item) => item.type === "identifier" && sourceText(item, source) === name2);
+        if (index < 0 || right[index] === void 0) return;
+        if (visibleBinding(name2, candidate, source)?.id === baseline.id) found = true;
+      });
+    }
+  }
+  return found;
+}
+function hasNestedFunctionAssignment(name2, use, binding, source) {
+  let callable = use;
+  while (callable !== null && !["function_declaration", "method_declaration", "func_literal"].includes(callable.type)) {
+    callable = callable.parent;
+  }
+  if (callable === null) return false;
+  let found = false;
+  walk2(callable, (candidate) => {
+    if (candidate.startIndex <= binding.endIndex || candidate.startIndex >= use.startIndex) return;
+    if (candidate.type !== "assignment_statement") return;
+    const left = fieldExpressions(candidate.childForFieldName("left"));
+    if (!left.some((item) => item.type === "identifier" && sourceText(item, source) === name2)) return;
+    for (let current = candidate.parent; current !== null && current.id !== callable.id; current = current.parent) {
+      if (current.type === "func_literal") found = true;
+    }
+  });
+  return found;
+}
+function walkExecutable(node, visit) {
+  visit(node);
+  for (const child of node.namedChildren) {
+    if (child.type === "func_literal") {
+      const parent = child.parent;
+      if (parent?.type !== "call_expression" || parent.childForFieldName("function")?.id !== child.id) continue;
+    }
+    walkExecutable(child, visit);
+  }
+}
+function nodeLines(node) {
+  const lines = [];
+  for (let line = node.startPosition.row + 1; line <= node.endPosition.row + 1; line += 1) lines.push(line);
+  return lines;
+}
+function controlClauseBinding(scope, name2, source) {
+  if (["if_statement", "for_statement", "expression_switch_statement", "type_switch_statement"].includes(scope.type)) {
+    const initializer = scope.childForFieldName("initializer");
+    const binding = initializer === null ? void 0 : directBinding(initializer, name2, source);
+    if (binding !== void 0) return binding;
+  }
+  if (scope.type === "for_statement") {
+    const range = scope.namedChildren.find((item) => item.type === "range_clause");
+    if (range !== void 0) {
+      const left = fieldExpressions(range.childForFieldName("left"));
+      const index = left.findIndex((item) => item.type === "identifier" && sourceText(item, source) === name2);
+      if (index >= 0) return range.childForFieldName("right") ?? range;
+    }
+  }
+  if (scope.type === "type_switch_statement") {
+    const names = scope.namedChildren[0];
+    const match = names?.namedChildren.find((item) => item.type === "identifier" && sourceText(item, source) === name2);
+    if (match !== void 0) return scope;
+  }
+  if (scope.type === "communication_case") {
+    const receive = scope.namedChildren.find((item) => item.type === "receive_statement");
+    if (receive !== void 0) {
+      const binding = directBinding(receive, name2, source);
+      if (binding !== void 0) return binding;
+    }
+  }
+  return void 0;
+}
+function fieldExpressions(node) {
+  if (node === null) return [];
+  return node.type === "expression_list" || node.type === "identifier_list" ? node.namedChildren : [node];
+}
+function stringLiteral(node, source) {
+  if (node === void 0 || node.type !== "interpreted_string_literal" && node.type !== "raw_string_literal") return void 0;
+  const raw = sourceText(node, source);
+  if (raw.startsWith("`")) return raw.slice(1, -1);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return void 0;
+  }
+}
+function directOpenFileMutates(flags2, source, osAlias) {
+  if (flags2 === void 0) return false;
+  const proven = directOpenFlagSet(flags2, source, osAlias);
+  return proven !== void 0 && ["O_WRONLY", "O_RDWR", "O_APPEND", "O_CREATE", "O_TRUNC"].some((flag) => proven.has(flag));
+}
+function directOpenFlagSet(node, source, osAlias) {
+  if (node.type === "parenthesized_expression") {
+    const inner = node.namedChildren[0];
+    return inner === void 0 ? void 0 : directOpenFlagSet(inner, source, osAlias);
+  }
+  if (node.type === "selector_expression") {
+    const operand = node.childForFieldName("operand");
+    const field = node.childForFieldName("field");
+    if (operand?.type !== "identifier" || field === null || sourceText(operand, source) !== osAlias) return void 0;
+    const flag = sourceText(field, source);
+    const known = /* @__PURE__ */ new Set(["O_RDONLY", "O_WRONLY", "O_RDWR", "O_APPEND", "O_CREATE", "O_EXCL", "O_SYNC", "O_TRUNC"]);
+    return known.has(flag) ? new Set(flag === "O_RDONLY" ? [] : [flag]) : void 0;
+  }
+  if (node.type === "binary_expression") {
+    const left = node.childForFieldName("left");
+    const right = node.childForFieldName("right");
+    const operator = node.childForFieldName("operator");
+    if (left === null || right === null || operator === null) return void 0;
+    const leftSet = directOpenFlagSet(left, source, osAlias);
+    const rightSet = directOpenFlagSet(right, source, osAlias);
+    if (leftSet === void 0 || rightSet === void 0) return void 0;
+    const op = sourceText(operator, source);
+    if (op === "|") return /* @__PURE__ */ new Set([...leftSet, ...rightSet]);
+    if (op === "&^") return new Set([...leftSet].filter((flag) => !rightSet.has(flag)));
+    if (op === "&") return new Set([...leftSet].filter((flag) => rightSet.has(flag)));
+  }
+  return void 0;
+}
+function enclosingFunctionName(node, source) {
+  for (let current = node.parent; current !== null; current = current.parent) {
+    if (current.type === "function_declaration" || current.type === "method_declaration") {
+      const name2 = current.childForFieldName("name");
+      return name2 === null ? "<function>" : sourceText(name2, source);
+    }
+  }
+  return "<literal>";
+}
+function normalize(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 // src/selector-oracle.ts
 import { dirname as dirname3 } from "node:path";
 var ASSERTION_NAMES = /* @__PURE__ */ new Set(["Equal", "EqualValues", "Exactly"]);
@@ -22089,6 +22577,28 @@ async function analyzeDiscovery(discovery) {
           if (tree.rootNode.hasError) throw new Error("Go source contains syntax errors");
           const result2 = domain.analyze(file);
           signals.push(...result2.signals.flatMap((item) => localizeSignal(file, item)));
+          const privileged = privilegedHostPathSignals(file, tree);
+          if (file.status === "modified" && file.previous !== void 0) {
+            const previousTree = await parseGo(file.previous);
+            try {
+              const previousFingerprints = occurrenceCounts(
+                privilegedHostPathSignals({ ...file, current: file.previous, status: "repository" }, previousTree).map((signal) => String(signal.data.fingerprint ?? ""))
+              );
+              for (const signal of privileged) {
+                const fingerprint = String(signal.data.fingerprint ?? "");
+                const count = previousFingerprints.get(fingerprint) ?? 0;
+                if (count > 0) {
+                  previousFingerprints.set(fingerprint, count - 1);
+                  continue;
+                }
+                signals.push(...localizeSignal(file, signal));
+              }
+            } finally {
+              previousTree.delete();
+            }
+          } else {
+            signals.push(...privileged.flatMap((item) => localizeSignal(file, item)));
+          }
           selectorEvidence.push(...selectorOracleEvidence(file, tree));
           positives.push(...result2.positives.filter((item) => changed(file, item.line)));
         } finally {
@@ -22116,6 +22626,11 @@ async function analyzeDiscovery(discovery) {
     positives: positives.sort(byLocation),
     parseErrors: parseErrors.sort((left, right) => left.path.localeCompare(right.path))
   };
+}
+function occurrenceCounts(values) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return counts;
 }
 function localizeSignal(file, signal) {
   if (file.status === "repository" || file.status === "added") return [signal];
@@ -22187,6 +22702,7 @@ async function discoverSources(ctx) {
     files.push({
       path: source.path,
       current: source.content,
+      ...change.previous === void 0 ? {} : { previous: change.previous },
       changedLines: change.changedLines,
       deletedHunks: change.deletedHunks,
       status: change.status
@@ -22203,12 +22719,13 @@ async function changedSource(ctx, path) {
   if (base === void 0 || !await existsAtRevision(ctx.repoPath, base, path)) {
     return { changedLines: /* @__PURE__ */ new Set(), deletedHunks: [], status: "added" };
   }
+  const previous = await gitOutput(ctx.repoPath, ["show", `${base}:${path}`]);
   const args2 = ["diff", "--unified=0", base];
   const head = ctx.change?.headRef;
   if (head !== void 0 && !ctx.change?.worktree) args2.push(head);
   args2.push("--", path);
   const patch = await gitOutput(ctx.repoPath, args2);
-  return { ...changeProvenance(patch), status: "modified" };
+  return { ...changeProvenance(patch), previous, status: "modified" };
 }
 async function existsAtRevision(repoPath, revision, path) {
   try {
@@ -22381,7 +22898,7 @@ function addPositives(ctx, analysis) {
 function createApp() {
   const app = new Adversary({
     name: domain.name,
-    version: "0.0.14",
+    version: "0.0.15",
     review: { maximumFindings: 8, minimumConfidence: "medium" }
   });
   app.rule(`${domain.name}.review`, async (ctx) => {

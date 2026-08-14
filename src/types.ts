@@ -1,6 +1,8 @@
 export interface SourceRevision {
   path: string;
   current: string;
+  /** Base-side source, when available, for semantic change-locality checks. */
+  previous?: string;
   changedLines: Set<number>;
   /** Zero-width head-side diff hunks produced by deletion-only changes. */
   deletedHunks?: Array<{
