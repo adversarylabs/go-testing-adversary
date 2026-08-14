@@ -40,6 +40,7 @@ export async function discoverSources(ctx: RuleContext): Promise<Discovery> {
     files.push({
       path: source.path,
       current: source.content,
+      ...(change.previous === undefined ? {} : { previous: change.previous }),
       changedLines: change.changedLines,
       deletedHunks: change.deletedHunks,
       status: change.status,
@@ -57,6 +58,7 @@ async function changedSource(
   ctx: RuleContext,
   path: string,
 ): Promise<{
+  previous?: string;
   changedLines: Set<number>;
   deletedHunks: NonNullable<SourceRevision["deletedHunks"]>;
   status: SourceRevision["status"];
@@ -66,12 +68,14 @@ async function changedSource(
     return { changedLines: new Set<number>(), deletedHunks: [], status: "added" };
   }
 
+  const previous = await gitOutput(ctx.repoPath, ["show", `${base}:${path}`]);
+
   const args = ["diff", "--unified=0", base];
   const head = ctx.change?.headRef;
   if (head !== undefined && !ctx.change?.worktree) args.push(head);
   args.push("--", path);
   const patch = await gitOutput(ctx.repoPath, args);
-  return { ...changeProvenance(patch), status: "modified" };
+  return { ...changeProvenance(patch), previous, status: "modified" };
 }
 
 async function existsAtRevision(repoPath: string, revision: string, path: string): Promise<boolean> {

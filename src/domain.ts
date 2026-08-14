@@ -104,6 +104,19 @@ export const domain: DomainDefinition = {
       recommendation: "Replace with t.Setenv (Go 1.17+).",
     },
     {
+      id: "go-test.privileged-host-path-mutation",
+      title: "Test mutates a privileged host path",
+      category: "reliability",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) =>
+        `${count} test mutation${count === 1 ? "" : "s"} target privileged host filesystem state.`,
+      whyItMatters:
+        "Writing or deleting host-global system paths makes tests destructive, privilege-dependent, and non-hermetic even when cleanup is attempted.",
+      impact: "Tests can overwrite pre-existing machine state, interfere with concurrent runs, or require elevated CI workers.",
+      recommendation: "Redirect the dependency to a tree rooted at t.TempDir, or run it inside an explicitly isolated filesystem namespace.",
+    },
+    {
       id: "go-test.selector-boundary-oracle",
       title: "Selector tests preserve a trivial boundary implementation",
       category: "correctness",

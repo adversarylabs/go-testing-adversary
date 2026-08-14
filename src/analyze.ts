@@ -1,5 +1,6 @@
 import { domain } from "./domain.js";
 import { parseGo } from "./parser.js";
+import { privilegedHostPathSignals } from "./privileged-host-path.js";
 import { selectorOracleEvidence, selectorOracleSignals, type SelectorOracleEvidence } from "./selector-oracle.js";
 import { type Analysis, type Discovery, type PositiveSignal, type Signal, type SourceRevision } from "./types.js";
 
@@ -17,6 +18,29 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
           if (tree.rootNode.hasError) throw new Error("Go source contains syntax errors");
           const result = domain.analyze(file);
           signals.push(...result.signals.flatMap((item) => localizeSignal(file, item)));
+          const privileged = privilegedHostPathSignals(file, tree);
+          if (file.status === "modified" && file.previous !== undefined) {
+            const previousTree = await parseGo(file.previous);
+            try {
+              const previousFingerprints = occurrenceCounts(
+                privilegedHostPathSignals({ ...file, current: file.previous, status: "repository" }, previousTree)
+                  .map((signal) => String(signal.data.fingerprint ?? "")),
+              );
+              for (const signal of privileged) {
+                const fingerprint = String(signal.data.fingerprint ?? "");
+                const count = previousFingerprints.get(fingerprint) ?? 0;
+                if (count > 0) {
+                  previousFingerprints.set(fingerprint, count - 1);
+                  continue;
+                }
+                signals.push(...localizeSignal(file, signal));
+              }
+            } finally {
+              previousTree.delete();
+            }
+          } else {
+            signals.push(...privileged.flatMap((item) => localizeSignal(file, item)));
+          }
           selectorEvidence.push(...selectorOracleEvidence(file, tree));
           positives.push(...result.positives.filter((item) => changed(file, item.line)));
         } finally {
@@ -46,6 +70,12 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
     positives: positives.sort(byLocation),
     parseErrors: parseErrors.sort((left, right) => left.path.localeCompare(right.path)),
   };
+}
+
+function occurrenceCounts(values: string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return counts;
 }
 
 export function localizeSignal(file: SourceRevision, signal: Signal): Signal[] {
