@@ -10,6 +10,7 @@ It currently reviews:
 - wall-clock sleeping used as synchronization
 - writes and destructive commands targeting privileged host filesystem trees from tests
 - direct minimum/maximum/canonical selector tests whose cases preserve a trivial first/last implementation
+- leak/redaction assertions that look for a sentinel the fixture never configured
 
 Related evidence is grouped by remediation, and overall risk follows the most operationally important defect rather than the number of findings.
 

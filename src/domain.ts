@@ -144,6 +144,20 @@ export const domain: DomainDefinition = {
       recommendation: "Fix or delete; if it must stay, link a tracking issue in the skip reason.",
     },
     {
+      id: "go-test.vacuous-absent-assert",
+      title: "Leak assertion cannot fail because the sentinel is not in the fixture",
+      category: "correctness",
+      severity: "high",
+      confidence: "high",
+      summary: (count) =>
+        `${count} leak assertion${count === 1 ? "" : "s"} look for a sentinel that the test never configured.`,
+      whyItMatters:
+        "A test that asserts output does not contain a token, when that token is not present in the configured secret or proxy value, stays green even when the value leaks.",
+      impact: "Secret or proxy leaks pass CI. Enabling xtrace or logging the real value does not fail the test.",
+      recommendation:
+        "Put a unique sentinel in the configured value and assert that exact sentinel is absent from the output.",
+    },
+    {
       id: "go-test.helper-missing-helper",
       title: "Test assertion helper does not call Helper",
       category: "maintainability",
@@ -198,6 +212,7 @@ export const domain: DomainDefinition = {
           (match) => ({ operation: match[1] }),
         ),
         ...unconditionalSkipSignals(file),
+        ...vacuousAbsentAssertSignals(file),
         ...missingHelperSignals(file),
       ],
       positives: [
@@ -223,6 +238,73 @@ export const domain: DomainDefinition = {
     };
   },
 };
+
+const LEAK_CONTEXT = /\b(?:leak|redact|xtrace|proxy|secret|password|token)\b/i;
+
+function vacuousAbsentAssertSignals(file: SourceRevision): Signal[] {
+  if (!file.path.endsWith("_test.go")) return [];
+  const source = file.current;
+  const code = maskNonCode(source);
+  const signals: Signal[] = [];
+  const fnRe = /\bfunc\s+(?:\([^)]*\)\s*)?(\w+)\s*\([^)]*\)\s*\{/g;
+  let fnMatch: RegExpExecArray | null;
+  while ((fnMatch = fnRe.exec(code)) !== null) {
+    const openBrace = fnRe.lastIndex - 1;
+    const closeBrace = matchingBrace(code, openBrace);
+    if (closeBrace < 0) continue;
+    const body = source.slice(openBrace, closeBrace + 1);
+    if (!LEAK_CONTEXT.test(body)) continue;
+    const literals = stringLiterals(body);
+    const absent = [
+      ...body.matchAll(/!strings\.Contains\s*\(\s*[^,]+,\s*(["`][^"`]*["`])/g),
+      ...body.matchAll(/(?:assert|require)\.NotContainsf?\s*\([^,]+,\s*[^,]+,\s*(["`][^"`]*["`])/g),
+      ...body.matchAll(/\bif\s+strings\.Contains\s*\(\s*[^,]+,\s*(["`][^"`]*["`])/g),
+    ];
+    for (const match of absent) {
+      const quoted = match[1] ?? "";
+      const needle = unquoteGoString(quoted);
+      if (needle.length < 4) continue;
+      const appearsElsewhere = literals.some((literal) => literal !== needle && literal.includes(needle));
+      if (appearsElsewhere) continue;
+      const offset = openBrace + (match.index ?? 0);
+      const line = file.current.slice(0, offset).split("\n").length;
+      signals.push({
+        ruleId: "go-test.vacuous-absent-assert",
+        path: file.path,
+        line,
+        locality: { kind: "direct", anchors: [line] },
+        message:
+          `This leak assertion looks for ${quoted}, which is not present in any other string in the test, so a real leak still passes.`,
+        snippet: file.current.split("\n")[line - 1]?.trim() ?? match[0] ?? "",
+        data: { needle },
+      });
+    }
+    fnRe.lastIndex = closeBrace + 1;
+  }
+  return signals;
+}
+
+function stringLiterals(source: string): string[] {
+  const values: string[] = [];
+  const re = /"(?:\\.|[^"\\])*"|`[^`]*`/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(source)) !== null) {
+    values.push(unquoteGoString(match[0] ?? ""));
+  }
+  return values;
+}
+
+function unquoteGoString(quoted: string): string {
+  if (quoted.startsWith("`") && quoted.endsWith("`")) return quoted.slice(1, -1);
+  if (quoted.startsWith("\"") && quoted.endsWith("\"")) {
+    try {
+      return JSON.parse(quoted) as string;
+    } catch {
+      return quoted.slice(1, -1);
+    }
+  }
+  return quoted;
+}
 
 function testMainNoRunSignals(file: SourceRevision): Signal[] {
   if (!/\bfunc\s+TestMain\s*\(/.test(file.current)) return [];

@@ -84,6 +84,17 @@ Public grounding: `go vet` testinggoroutine analyzer, `testing` package document
 | **Public examples** | `httptest` docs; CI port-collision flake reports |
 | **Remediation** | Listen on `:0` and read the assigned address, or use `httptest` |
 
+### `go-test.vacuous-absent-assert`
+
+| | |
+| --- | --- |
+| **What** | A leak/redaction test asserts output does not contain a sentinel that the fixture never configured |
+| **Why** | The assertion cannot fail if the real proxy/secret value leaks |
+| **Looks for** | `!strings.Contains` / testify `NotContains` / `if strings.Contains` in a test whose body mentions leak/redact/xtrace/proxy/secret/password/token, where the needle literal does not appear in any other string in that function |
+| **Stays quiet when** | The sentinel is present in another string literal in the same function; the function is not a leak/secret/proxy test |
+| **Public grounding** | [project-dalec/dalec#1152](https://github.com/project-dalec/dalec/pull/1152) — looking for `"secret"` when the proxy URL does not contain it |
+| **Remediation** | Put a unique sentinel in the configured value and assert that exact sentinel is absent from the output |
+
 ### `go-test.env-no-cleanup`
 
 | | |
