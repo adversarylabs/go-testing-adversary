@@ -13,3 +13,4 @@
 | `go-test.testmain-defer-before-exit` | Medium | TestMain exits before deferred cleanup can run |
 | `go-test.testmain-no-run` | High | `TestMain` defined but never calls `m.Run()` |
 | `go-test.unconditional-skip` | Low | Test begins with an unconditional `t.Skip` |
+| `go-test.vacuous-absent-assert` | High | Leak or redaction assertion searches for a sentinel the fixture never configured |
