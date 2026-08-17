@@ -1,32 +1,21 @@
 # Go Testing adversary
 
-Go Testing reviews whether changed tests provide deterministic, isolated, trustworthy evidence.
+Reviews Go tests for broken harnesses, flaky shared state, and selector oracles that preserve trivial boundary implementations.
 
-It currently reviews:
+## Goals
 
-- assertions made from unowned background goroutines
-- parallel tests that mutate process-wide environment state
-- process-global environment mutation without test-scoped restoration
-- wall-clock sleeping used as synchronization
-- writes and destructive commands targeting privileged host filesystem trees from tests
-- direct minimum/maximum/canonical selector tests whose cases preserve a trivial first/last implementation
-- leak/redaction assertions that look for a sentinel the fixture never configured
+The adversary is designed to produce a small number of high-confidence,
+actionable findings grounded in concrete repository evidence. Its review should
+be deterministic where possible, explicit about impact, and quiet when the
+available evidence does not justify a finding.
 
-Related evidence is grouped by remediation, and overall risk follows the most operationally important defect rather than the number of findings.
+## Scope
 
-## Fixtures and calibration
+It evaluates Go tests and test infrastructure for synchronization, cleanup, environment isolation, network and host dependencies, TestMain behavior, and assertion reliability.
 
-`fixtures/` contains `excellent`, `good`, `average`, `poor`, and `terrible` repositories with expected review snapshots. `benchmarks/corpus.json` indexes 61 external Go repositories used for calibration; no upstream source is copied.
+The complete detector or review inventory is maintained in
+[CHECKS.md](CHECKS.md).
 
-## Automatic detection
+## Boundaries
 
-`adversary auto` selects Go Testing when a Go test file changes.
-
-## Development
-
-```sh
-npm ci
-npm test
-adversary validate .
-adversary pack --check .
-```
+It owns only this Go specialty. Other Go concerns remain with the corresponding `go/*` adversaries, and it does not execute or modify the target repository.
