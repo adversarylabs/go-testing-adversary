@@ -21762,7 +21762,6 @@ function partitionOracleSignals(file, tree) {
   const signals = [];
   for (const group of [...groups.values()].sort((left, right) => left.scope.startIndex - right.scope.startIndex)) {
     if (group.dynamicKey || !receiverBindingStable(group.scope, group.receiver, file.current)) continue;
-    const unknownKeys = new Set(group.reads.filter((read) => read.state === "unknown").map((read) => read.key));
     const presentHeader = keys(group.reads, "header", "present");
     const presentTrailer = keys(group.reads, "trailer", "present");
     const absentHeader = keys(group.reads, "header", "absent");
@@ -21770,7 +21769,6 @@ function partitionOracleSignals(file, tree) {
     const headerOnly = [...presentHeader].filter((key) => !presentTrailer.has(key)).sort();
     const trailerOnly = [...presentTrailer].filter((key) => !presentHeader.has(key)).sort();
     if (headerOnly.length === 0 || trailerOnly.length === 0) continue;
-    if ([...headerOnly, ...trailerOnly].some((key) => unknownKeys.has(key))) continue;
     const missingFromTrailers = headerOnly.filter((key) => !absentTrailer.has(key));
     const missingFromHeaders = trailerOnly.filter((key) => !absentHeader.has(key));
     if (missingFromTrailers.length === 0 && missingFromHeaders.length === 0) continue;
@@ -21778,7 +21776,6 @@ function partitionOracleSignals(file, tree) {
     const line = anchors[0];
     if (line === void 0) continue;
     const fingerprint = JSON.stringify({
-      receiver: group.receiver,
       prefix: group.prefix,
       headerOnly,
       trailerOnly,
@@ -21864,7 +21861,7 @@ function testifyAssertionEvidence(assertion, read, scope, testify, source) {
   if (receiver?.type !== "identifier" || field === null || !testify.has(sourceText(receiver, source))) {
     return void 0;
   }
-  if (locallyDeclared(scope, sourceText(receiver, source), source)) return void 0;
+  if (locallyDeclaredAt(scope, sourceText(receiver, source), assertion, source)) return void 0;
   const method = sourceText(field, source);
   if (EQUALITY_ASSERTIONS.has(method)) {
     if (args2.length !== 3) return void 0;
@@ -21947,7 +21944,7 @@ function importedAssertionCall(call, scope, receivers, source) {
   const fn = call.childForFieldName("function");
   if (fn?.type !== "selector_expression") return false;
   const receiver = fn.childForFieldName("operand");
-  return receiver?.type === "identifier" && receivers.has(sourceText(receiver, source)) && !locallyDeclared(scope, sourceText(receiver, source), source);
+  return receiver?.type === "identifier" && receivers.has(sourceText(receiver, source)) && !locallyDeclaredAt(scope, sourceText(receiver, source), call, source);
 }
 function failingComparisonEvidence(comparison, read, source) {
   const conditional = ancestor(comparison, "if_statement");
@@ -21980,6 +21977,20 @@ function failingComparisonEvidence(comparison, read, source) {
   return void 0;
 }
 function directStatement(scope, node) {
+  const statement = topLevelStatement(scope, node);
+  if (statement === void 0) return void 0;
+  const statements = statement.parent;
+  if (statements === null) return void 0;
+  const index = statements.namedChildren.findIndex(
+    (candidate) => candidate.startIndex === statement.startIndex && candidate.endIndex === statement.endIndex
+  );
+  if (index < 0) return void 0;
+  if (statements.namedChildren.slice(0, index).some((candidate) => definitelyTerminates(candidate))) {
+    return void 0;
+  }
+  return statement;
+}
+function topLevelStatement(scope, node) {
   let statement;
   let current = node;
   while (current !== null && current.startIndex >= scope.startIndex) {
@@ -21994,17 +22005,19 @@ function directStatement(scope, node) {
   if (statement === void 0 || statements === null || statements === void 0 || statements.parent?.startIndex !== body2?.startIndex) {
     return void 0;
   }
-  const index = statements.namedChildren.findIndex(
-    (candidate) => candidate.startIndex === statement?.startIndex && candidate.endIndex === statement?.endIndex
-  );
-  if (index < 0) return void 0;
-  const prior = statements.namedChildren.slice(0, index);
-  if (prior.some(
-    (candidate) => candidate.type === "return_statement" || candidate.type === "goto_statement" || descendants(candidate, "return_statement").length > 0 || descendants(candidate, "goto_statement").length > 0
-  )) {
-    return void 0;
-  }
   return statement;
+}
+function definitelyTerminates(statement) {
+  if (statement.type === "return_statement" || statement.type === "goto_statement") return true;
+  if (statement.type !== "if_statement") return false;
+  const consequence = statement.childForFieldName("consequence");
+  const alternative = statement.childForFieldName("alternative");
+  if (consequence === null || alternative === null) return false;
+  return blockTerminates(consequence) && (alternative.type === "if_statement" ? definitelyTerminates(alternative) : blockTerminates(alternative));
+}
+function blockTerminates(block) {
+  const statements = block.type === "block" ? block.namedChildren : [block];
+  return statements.some((statement) => definitelyTerminates(statement));
 }
 function literalState(node, source) {
   const value = transparent(node);
@@ -22020,31 +22033,51 @@ function receiverBindingStable(scope, name2, source) {
     declarations += descendants(parameters, "identifier").filter((node) => sourceText(node, source) === name2).length;
   }
   for (const declaration of descendants(scope, "short_var_declaration")) {
+    if (owningFunction(declaration)?.startIndex !== scope.startIndex) continue;
+    const statement = topLevelStatement(scope, declaration);
+    if (statement?.startIndex !== declaration.startIndex || statement.endIndex !== declaration.endIndex) continue;
     const left = declaration.childForFieldName("left");
     if (left !== null && identifierList(left, source).includes(name2)) declarations += 1;
   }
   for (const specification of descendants(scope, "var_spec")) {
+    if (owningFunction(specification)?.startIndex !== scope.startIndex) continue;
+    const declaration = ancestor(specification, "var_declaration");
+    const statement = declaration === void 0 ? void 0 : topLevelStatement(scope, declaration);
+    if (declaration === void 0 || statement?.startIndex !== declaration.startIndex || statement.endIndex !== declaration.endIndex) continue;
     const names = specification.childForFieldName("name");
     if (names !== null && identifierList(names, source).includes(name2)) declarations += 1;
   }
   if (declarations !== 1) return false;
   for (const assignment of descendants(scope, "assignment_statement")) {
+    if (owningFunction(assignment)?.startIndex !== scope.startIndex) continue;
     const left = assignment.childForFieldName("left");
     if (left !== null && identifierList(left, source).includes(name2)) return false;
   }
   return true;
 }
-function locallyDeclared(scope, name2, source) {
-  for (const declaration of descendants(scope, "short_var_declaration")) {
-    const left = declaration.childForFieldName("left");
-    if (left !== null && identifierList(left, source).includes(name2)) return true;
+function locallyDeclaredAt(scope, name2, use, source) {
+  const parameters = scope.childForFieldName("parameters");
+  if (parameters !== null && parameters !== void 0 && descendants(parameters, "identifier").some((node) => sourceText(node, source) === name2)) {
+    return true;
   }
-  for (const specification of descendants(scope, "var_spec")) {
-    const names = specification.childForFieldName("name");
-    if (names !== null && identifierList(names, source).includes(name2)) return true;
-  }
-  for (const parameter of descendants(scope, "parameter_declaration")) {
-    if (descendants(parameter, "identifier").some((node) => sourceText(node, source) === name2)) return true;
+  const statement = topLevelStatement(scope, use);
+  const statements = statement?.parent;
+  if (statement === void 0 || statements === null || statements === void 0) return true;
+  const index = statements.namedChildren.findIndex(
+    (candidate) => candidate.startIndex === statement.startIndex && candidate.endIndex === statement.endIndex
+  );
+  if (index < 0) return true;
+  for (const candidate of statements.namedChildren.slice(0, index)) {
+    if (candidate.type === "short_var_declaration") {
+      const left = candidate.childForFieldName("left");
+      if (left !== null && identifierList(left, source).includes(name2)) return true;
+    }
+    if (candidate.type === "var_declaration") {
+      for (const specification of descendants(candidate, "var_spec")) {
+        const names = specification.childForFieldName("name");
+        if (names !== null && identifierList(names, source).includes(name2)) return true;
+      }
+    }
   }
   return false;
 }
@@ -22145,7 +22178,9 @@ function eligibleTestScope(scope, source) {
   if (call?.type !== "call_expression") return false;
   const fn = call.childForFieldName("function");
   const field = fn?.type === "selector_expression" ? fn.childForFieldName("field") : null;
-  return field !== null && field !== void 0 && sourceText(field, source) === "Run";
+  const receiver = fn?.type === "selector_expression" ? fn.childForFieldName("operand") : null;
+  if (field === null || field === void 0 || sourceText(field, source) !== "Run" || receiver?.type !== "identifier") return false;
+  return testingVariables(call, source).has(sourceText(receiver, source));
 }
 function ancestor(node, type) {
   let current = node.parent;

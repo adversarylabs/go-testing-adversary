@@ -49,7 +49,6 @@ test("reports the source-shaped cross-partition oracle gap", async () => {
     missingFromHeaders: ["x-trailer"],
     missingFromTrailers: ["x-header"],
     fingerprint: JSON.stringify({
-      receiver: "info",
       prefix: "Response",
       headerOnly: ["x-header"],
       trailerOnly: ["x-trailer"],
@@ -295,4 +294,45 @@ func TestLoop(t *testing.T) {
 }
 `);
   assert.deepEqual(result, []);
+});
+
+test("binds direct subtests to testing.T Run rather than method spelling", async () => {
+  const result = await findings(`package connect
+import ("testing"; "github.com/stretchr/testify/assert")
+func TestMetadata(t *testing.T) {
+	runner := customRunner{}
+	runner.Run("not-a-subtest", func(t *testing.T) {
+		info := newCallInfo()
+		assert.Equal(t, "header", info.ResponseHeader().Get("x-header"))
+		assert.Equal(t, "trailer", info.ResponseTrailer().Get("x-trailer"))
+	})
+}
+`);
+  assert.deepEqual(result, []);
+});
+
+test("preserves lexical assertion imports and reachable post-guard evidence", async () => {
+  const result = await findings(`package connect
+import ("testing"; "github.com/stretchr/testify/assert")
+func TestMetadata(t *testing.T) {
+	if true { assert := customAssertions{}; _ = assert }
+	info := newCallInfo()
+	helper := func(assert int) { info := otherCallInfo(); _, _ = assert, info }
+	_ = helper
+	if info == nil { return }
+	t.Log(info.ResponseHeader().Get("x-header"))
+	assert.Equal(t, "header", info.ResponseHeader().Get("x-header"))
+	assert.Equal(t, "trailer", info.ResponseTrailer().Get("x-trailer"))
+}
+`);
+  assert.equal(result.length, 1);
+});
+
+test("receiver-only renames preserve the semantic locality fingerprint", async () => {
+  const current = vulnerable.replaceAll("info", "callInfo");
+  assert.deepEqual(await findings(current, {
+    previous: vulnerable,
+    status: "modified",
+    changedLines: [7, 8, 9, 10, 11],
+  }), []);
 });
