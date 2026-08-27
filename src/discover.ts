@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import type { Dirent } from "node:fs";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { dirname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import type { RuleContext } from "@adversarylabs/sdk";
 import { domain } from "./domain.js";
@@ -6,6 +9,7 @@ import { type Discovery, type SourceRevision } from "./types.js";
 
 const MAX_FILE_BYTES = 750_000;
 const MAX_FILES = 750;
+const MAX_CONTEXT_FILES = 150;
 const execute = promisify(execFile);
 
 /**
@@ -16,19 +20,34 @@ const execute = promisify(execFile);
  * those already-scoped paths and recover their changed line ranges.
  */
 export async function discoverSources(ctx: RuleContext): Promise<Discovery> {
+  const wholeTarget = ctx.change === null || ctx.change.scanMode === "all";
+  const changedTestDirectories = wholeTarget
+    ? new Set<string>()
+    : new Set(
+      (ctx.change?.changedFiles ?? [])
+        .map(normalizeRepoPath)
+        .filter(domain.includePath)
+        .map((path) => dirname(path).replaceAll("\\", "/")),
+    );
   const sources = await ctx.loadInScopeSources({
-    include: domain.includePath,
+    include: (path) => {
+      const normalized = normalizeRepoPath(path);
+      if (domain.includePath(normalized)) return true;
+      return !wholeTarget && normalized.endsWith(".go") &&
+        changedTestDirectories.has(dirname(normalized).replaceAll("\\", "/"));
+    },
     limit: MAX_FILES,
     maxBytes: MAX_FILE_BYTES,
   });
 
-  const wholeTarget = ctx.change === null || ctx.change.scanMode === "all";
   const files: SourceRevision[] = [];
   for (const source of sources) {
+    const contextOnly = !domain.includePath(source.path);
     if (source.status === "repository") {
       files.push({
         path: source.path,
         current: source.content,
+        ...(contextOnly ? { contextOnly: true } : {}),
         changedLines: new Set<number>(),
         deletedHunks: [],
         status: "repository",
@@ -40,6 +59,7 @@ export async function discoverSources(ctx: RuleContext): Promise<Discovery> {
     files.push({
       path: source.path,
       current: source.content,
+      ...(contextOnly ? { contextOnly: true } : {}),
       ...(change.previous === undefined ? {} : { previous: change.previous }),
       changedLines: change.changedLines,
       deletedHunks: change.deletedHunks,
@@ -47,11 +67,94 @@ export async function discoverSources(ctx: RuleContext): Promise<Discovery> {
     });
   }
 
+  if (!wholeTarget && files.length < MAX_FILES) {
+    files.push(...await siblingTestContext(
+      ctx.repoPath,
+      changedTestDirectories,
+      new Set(files.map((file) => normalizeRepoPath(file.path))),
+      Math.min(MAX_CONTEXT_FILES, MAX_FILES - files.length),
+    ));
+  }
+  files.sort((left, right) => left.path.localeCompare(right.path));
+
   return {
     mode: wholeTarget ? "repository" : "diff",
     ...(ctx.change?.baseRef === undefined ? {} : { base: ctx.change.baseRef }),
     files,
   };
+}
+
+/**
+ * Load only unchanged direct sibling tests for packages whose tests changed.
+ * They can close a cross-method coverage gap, but they never count as changed
+ * files, ordinary findings, parse errors, or files scanned.
+ */
+async function siblingTestContext(
+  repository: string,
+  directories: Set<string>,
+  knownPaths: Set<string>,
+  limit: number,
+): Promise<SourceRevision[]> {
+  if (limit <= 0) return [];
+  let root: string;
+  try {
+    root = await realpath(repository);
+  } catch {
+    return [];
+  }
+
+  const context: SourceRevision[] = [];
+  for (const directory of [...directories].sort()) {
+    if (context.length >= limit) break;
+    const absoluteDirectory = await safeExistingPath(root, join(root, ...directory.split("/")));
+    if (absoluteDirectory === undefined) continue;
+    let entries: Dirent[];
+    try {
+      entries = await readdir(absoluteDirectory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (context.length >= limit || !entry.isFile() || !entry.name.endsWith("_test.go")) continue;
+      const path = normalizeRepoPath(directory === "." ? entry.name : `${directory}/${entry.name}`);
+      if (knownPaths.has(path)) continue;
+      try {
+        const absolute = await safeExistingPath(root, join(absoluteDirectory, entry.name));
+        if (absolute === undefined) continue;
+        const metadata = await stat(absolute);
+        if (!metadata.isFile() || metadata.size > MAX_FILE_BYTES) continue;
+        const current = await readFile(absolute, "utf8");
+        if (Buffer.byteLength(current, "utf8") > MAX_FILE_BYTES || current.includes("\0")) continue;
+        context.push({
+          path,
+          current,
+          contextOnly: true,
+          changedLines: new Set<number>(),
+          deletedHunks: [],
+          status: "context",
+        });
+        knownPaths.add(path);
+      } catch {
+        // Unreadable or disappearing context is not reliable evidence.
+      }
+    }
+  }
+  return context;
+}
+
+function normalizeRepoPath(path: string): string {
+  return path.replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+async function safeExistingPath(root: string, path: string): Promise<string | undefined> {
+  try {
+    const candidate = await realpath(path);
+    const fromRoot = relative(root, candidate);
+    if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`)) return undefined;
+    return candidate;
+  } catch {
+    return undefined;
+  }
 }
 
 async function changedSource(

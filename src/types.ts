@@ -1,6 +1,8 @@
 export interface SourceRevision {
   path: string;
   current: string;
+  /** Prepared only as bounded relationship context; never run through ordinary file rules. */
+  contextOnly?: boolean;
   /** Base-side source, when available, for semantic change-locality checks. */
   previous?: string;
   changedLines: Set<number>;
@@ -10,7 +12,7 @@ export interface SourceRevision {
     afterLine: number;
     deletedLines: number;
   }>;
-  status: "added" | "modified" | "repository";
+  status: "added" | "modified" | "repository" | "context";
 }
 
 export interface Discovery {

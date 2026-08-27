@@ -76,7 +76,7 @@ func TestResponseMetadata(t *testing.T) {
   const envelope = JSON.parse(await readFile(output, "utf8"));
   assert.equal(envelope.protocolVersion, 1);
   assert.equal(envelope.result.adversary.name, "go/testing");
-  assert.equal(envelope.result.adversary.version, "0.0.18");
+  assert.equal(envelope.result.adversary.version, "0.0.19");
   assert.equal(envelope.result.findings.length, 1);
   assert.equal(envelope.result.findings[0]?.ruleId, "go-test.partition-boundary-oracle");
 
@@ -92,6 +92,83 @@ func TestResponseMetadata(t *testing.T) {
   });
   const cleanEnvelope = JSON.parse(await readFile(output, "utf8"));
   assert.deepEqual(cleanEnvelope.result.findings, []);
+});
+
+test("the tracked artifact prepares changed production siblings for cross-method test contracts", async () => {
+  const artifact = await mkdtemp(join(tmpdir(), "go-testing-contract-artifact-"));
+  const repository = await mkdtemp(join(tmpdir(), "go-testing-contract-target-"));
+  const entrypoint = join(artifact, "dist", "index.js");
+  const input = join(artifact, "input.json");
+  const output = join(artifact, "output.json");
+
+  await mkdir(dirname(entrypoint), { recursive: true });
+  await mkdir(join(artifact, "schemas"), { recursive: true });
+  await copyFile(join(projectRoot, "dist", "index.js"), entrypoint);
+  await copyFile(join(projectRoot, "dist", "web-tree-sitter.wasm"), join(artifact, "dist", "web-tree-sitter.wasm"));
+  await copyFile(join(projectRoot, "dist", "tree-sitter-go.wasm"), join(artifact, "dist", "tree-sitter-go.wasm"));
+  await copyFile(join(projectRoot, "schemas", "adversary.review.v1.schema.json"), join(artifact, "schemas", "adversary.review.v1.schema.json"));
+  await copyFile(join(projectRoot, "THIRD_PARTY_NOTICES.md"), join(artifact, "THIRD_PARTY_NOTICES.md"));
+  await writeFile(join(artifact, "package.json"), '{"type":"module"}\n');
+
+  await execute("git", ["init", "--quiet"], { cwd: repository });
+  await execute("git", ["config", "user.email", "tests@example.com"], { cwd: repository });
+  await execute("git", ["config", "user.name", "Tests"], { cwd: repository });
+  await writeFile(join(repository, "handler.go"), "package fixture\ntype Handler struct{}\n");
+  await writeFile(join(repository, "handler_test.go"), "package fixture\n");
+  await execute("git", ["add", "."], { cwd: repository });
+  await execute("git", ["commit", "--quiet", "-m", "base"], { cwd: repository });
+
+  await writeFile(join(repository, "handler.go"), `package fixture
+type Handler struct{}
+func (h *Handler) enforce(string) error { return nil }
+func (h *Handler) Read() error { if err := h.enforce("read"); err != nil { return err }; return nil }
+func (h *Handler) Write() error { if err := h.enforce("write"); err != nil { return err }; return nil }
+func (h *Handler) Delete() error { if err := h.enforce("delete"); err != nil { return err }; return nil }
+`);
+  await writeFile(join(repository, "handler_test.go"), `package fixture
+import "testing"
+func TestEnforceContract(t *testing.T) {
+	c := newClient()
+	if err := c.Read(); err != nil { t.Fatal(err) }
+}
+`);
+  await writeFile(input, `${JSON.stringify({
+    source: { path: repository },
+    change: {
+      type: "diff",
+      base_ref: "HEAD",
+      head_ref: "WORKTREE",
+      scan_mode: "changed",
+      changed_files: ["handler.go", "handler_test.go"],
+    },
+  })}\n`);
+
+  await execute(process.execPath, [entrypoint], {
+    cwd: artifact,
+    env: { ...process.env, ADVERSARY_INPUT: input, ADVERSARY_OUTPUT: output, ADVERSARY_REPO: repository },
+  });
+  const vulnerable = JSON.parse(await readFile(output, "utf8"));
+  assert.equal(vulnerable.result.adversary.version, "0.0.19");
+  assert.equal(vulnerable.result.target.filesScanned, 1);
+  assert.deepEqual(vulnerable.result.findings.map((finding: { ruleId?: string }) => finding.ruleId), [
+    "go-test.cross-method-contract-coverage",
+  ]);
+
+  await writeFile(join(repository, "handler_test.go"), `package fixture
+import "testing"
+func TestEnforceContract(t *testing.T) {
+	c := newClient()
+	if err := c.Read(); err != nil { t.Fatal(err) }
+	if err := c.Write(); err != nil { t.Fatal(err) }
+	if err := c.Delete(); err != nil { t.Fatal(err) }
+}
+`);
+  await execute(process.execPath, [entrypoint], {
+    cwd: artifact,
+    env: { ...process.env, ADVERSARY_INPUT: input, ADVERSARY_OUTPUT: output, ADVERSARY_REPO: repository },
+  });
+  const fixed = JSON.parse(await readFile(output, "utf8"));
+  assert.deepEqual(fixed.result.findings, []);
 });
 
 test("the catalog package excludes repository and dependency metadata", async () => {
