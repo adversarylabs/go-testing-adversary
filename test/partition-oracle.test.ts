@@ -115,6 +115,20 @@ func TestMetadata(t *testing.T) {
   assert.deepEqual(result[0]?.data.trailerKeys, ["x-trailer"]);
 });
 
+test("does not treat partial conditions or conditional failure calls as assertions", async () => {
+  const result = await findings(`package connect
+import "testing"
+func TestMetadata(t *testing.T) {
+	info := newCallInfo()
+	if info.ResponseHeader().Get("x-header") != "header-value" && strict() { t.Fatalf("wrong header") }
+	if info.ResponseTrailer().Get("x-trailer") != "trailer-value" {
+		if verbose() { t.Errorf("wrong trailer") }
+	}
+}
+`);
+  assert.deepEqual(result, []);
+});
+
 test("stays quiet unless both partitions contain distinct proven keys", async () => {
   const result = await findings(`package connect
 import ("testing"; "github.com/stretchr/testify/assert")

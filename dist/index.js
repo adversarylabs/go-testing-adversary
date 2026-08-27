@@ -21951,7 +21951,7 @@ function failingComparisonEvidence(comparison, read, source) {
   const scope = owningFunction(comparison);
   const condition = conditional?.childForFieldName("condition");
   const consequence = conditional?.childForFieldName("consequence");
-  if (conditional === void 0 || scope === void 0 || directStatement(scope, conditional) === void 0 || condition === null || condition === void 0 || consequence === null || consequence === void 0 || !contains(condition, comparison) || !hasTestingFailure(consequence, comparison, source)) return void 0;
+  if (conditional === void 0 || scope === void 0 || directStatement(scope, conditional) === void 0 || condition === null || condition === void 0 || consequence === null || consequence === void 0 || !sameExpression(condition, comparison) || !hasTestingFailure(consequence, comparison, source)) return void 0;
   const left = transparent(comparison.childForFieldName("left"));
   const right = transparent(comparison.childForFieldName("right"));
   if (left === void 0 || right === void 0) return void 0;
@@ -22106,12 +22106,22 @@ function hasTestingFailure(branch, context, source) {
   const methods = /* @__PURE__ */ new Set(["Fatal", "Fatalf", "Error", "Errorf", "Fail", "FailNow"]);
   return descendants(branch, "call_expression").some((call) => {
     if (owningFunction(call)?.startIndex !== owningFunction(context)?.startIndex) return false;
+    if (directBranchStatement(branch, call)?.type !== "expression_statement") return false;
     const fn = call.childForFieldName("function");
     if (fn?.type !== "selector_expression") return false;
     const operand = fn.childForFieldName("operand");
     const field = fn.childForFieldName("field");
     return operand?.type === "identifier" && field !== null && testVariables.has(sourceText(operand, source)) && methods.has(sourceText(field, source));
   });
+}
+function directBranchStatement(branch, node) {
+  let current = node;
+  while (current !== null && contains(branch, current)) {
+    const statements = current.parent;
+    if (statements?.type === "statement_list" && statements.parent?.startIndex === branch.startIndex) return current;
+    current = current.parent;
+  }
+  return void 0;
 }
 function testingVariables(node, source) {
   const scope = owningFunction(node);

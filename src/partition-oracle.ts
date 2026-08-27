@@ -300,7 +300,7 @@ function failingComparisonEvidence(
   if (
     conditional === undefined || scope === undefined || directStatement(scope, conditional) === undefined ||
     condition === null || condition === undefined ||
-    consequence === null || consequence === undefined || !contains(condition, comparison) ||
+    consequence === null || consequence === undefined || !sameExpression(condition, comparison) ||
     !hasTestingFailure(consequence, comparison, source)
   ) return undefined;
   const left = transparent(comparison.childForFieldName("left"));
@@ -475,6 +475,7 @@ function hasTestingFailure(branch: Node, context: Node, source: string): boolean
   const methods = new Set(["Fatal", "Fatalf", "Error", "Errorf", "Fail", "FailNow"]);
   return descendants(branch, "call_expression").some((call) => {
     if (owningFunction(call)?.startIndex !== owningFunction(context)?.startIndex) return false;
+    if (directBranchStatement(branch, call)?.type !== "expression_statement") return false;
     const fn = call.childForFieldName("function");
     if (fn?.type !== "selector_expression") return false;
     const operand = fn.childForFieldName("operand");
@@ -482,6 +483,16 @@ function hasTestingFailure(branch: Node, context: Node, source: string): boolean
     return operand?.type === "identifier" && field !== null &&
       testVariables.has(sourceText(operand, source)) && methods.has(sourceText(field, source));
   });
+}
+
+function directBranchStatement(branch: Node, node: Node): Node | undefined {
+  let current: Node | null = node;
+  while (current !== null && contains(branch, current)) {
+    const statements = current.parent;
+    if (statements?.type === "statement_list" && statements.parent?.startIndex === branch.startIndex) return current;
+    current = current.parent;
+  }
+  return undefined;
 }
 
 function testingVariables(node: Node, source: string): Set<string> {
