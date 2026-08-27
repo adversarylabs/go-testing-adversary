@@ -18,6 +18,7 @@ Review Go tests for correctness of the test harness and concurrency/sync mistake
 - Flaky or incorrect assertions that hide real failures
 - Leak/redaction tests that assert a sentinel is absent when the fixture never contains that sentinel
 - Direct selector tests whose literal equality oracles do not distinguish the named order-independent behavior from returning a fixed input boundary
+- Direct request/response metadata tests that prove distinct header and trailer values but omit opposite-partition absence assertions
 
 ## Out of scope (not a miss for this adversary)
 

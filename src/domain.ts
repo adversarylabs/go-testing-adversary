@@ -131,6 +131,20 @@ export const domain: DomainDefinition = {
         "Add a reversed, shuffled, or interior-winner case so neither an always-first nor an always-last implementation can satisfy the test oracle.",
     },
     {
+      id: "go-test.partition-boundary-oracle",
+      title: "Partition tests never prove values stay on their own side",
+      category: "correctness",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) =>
+        `${count} header/trailer test oracle${count === 1 ? "" : "s"} allow the two partitions to be copied or merged.`,
+      whyItMatters:
+        "Positive assertions in both partitions still pass when header-only values leak into trailers and trailer-only values leak into headers unless the test checks the opposite side is empty.",
+      impact: "A broken metadata boundary can ship behind tests that exercise both accessors but never distinguish their contents.",
+      recommendation:
+        "For every key intended for only one partition, assert its expected value there and explicitly assert it is absent from the counterpart partition.",
+    },
+    {
       id: "go-test.unconditional-skip",
       title: "Test begins with an unconditional t.Skip",
       category: "maintainability",
