@@ -1,6 +1,6 @@
 # Go Testing adversary
 
-Reviews Go tests for broken harnesses, flaky shared state, and selector oracles that preserve trivial boundary implementations.
+Reviews Go tests for broken harnesses, flaky shared state, and oracles that preserve trivial selector or metadata-partition defects.
 
 ## Goals
 
