@@ -1,6 +1,6 @@
 name: go/testing
-version: 0.0.18
-description: "Reviews Go tests for broken harnesses, flaky shared state, and oracles that preserve trivial selector or metadata-partition defects."
+version: 0.0.19
+description: "Reviews Go tests for broken harnesses, flaky shared state, incomplete cross-entrypoint contracts, and oracles that preserve trivial defects."
 
 triggers:
   manual: true

@@ -19,6 +19,7 @@ Review Go tests for correctness of the test harness and concurrency/sync mistake
 - Leak/redaction tests that assert a sentinel is absent when the fixture never contains that sentinel
 - Direct selector tests whose literal equality oracles do not distinguish the named order-independent behavior from returning a fixed input boundary
 - Direct request/response metadata tests that prove distinct header and trailer values but omit opposite-partition absence assertions
+- Changed behavioral tests that claim a repeated gate but exercise only a strict subset of three or more sibling entrypoints where that gate was independently added
 
 ## Out of scope (not a miss for this adversary)
 

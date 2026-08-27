@@ -1,4 +1,11 @@
 import { domain } from "./domain.js";
+import {
+  contractTestEvidence,
+  crossMethodContractSignals,
+  policyGroupEvidence,
+  type ContractTestEvidence,
+  type PolicyGroupEvidence,
+} from "./cross-method-contract.js";
 import { parseGo } from "./parser.js";
 import { partitionOracleSignals } from "./partition-oracle.js";
 import { privilegedHostPathSignals } from "./privileged-host-path.js";
@@ -10,6 +17,8 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
   const positives: PositiveSignal[] = [];
   const parseErrors: Analysis["parseErrors"] = [];
   const selectorEvidence: SelectorOracleEvidence[] = [];
+  const policyGroups: PolicyGroupEvidence[] = [];
+  const contractTests: ContractTestEvidence[] = [];
 
   for (const file of discovery.files) {
     try {
@@ -17,6 +26,9 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
         const tree = await parseGo(file.current);
         try {
           if (tree.rootNode.hasError) throw new Error("Go source contains syntax errors");
+          policyGroups.push(...await policyGroupEvidence(file, tree));
+          contractTests.push(...contractTestEvidence(file, tree));
+          if (file.contextOnly === true) continue;
           const result = domain.analyze(file);
           signals.push(...result.signals.flatMap((item) => localizeSignal(file, item)));
           const privileged = privilegedHostPathSignals(file, tree);
@@ -49,11 +61,14 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
         }
         continue;
       }
+      if (file.contextOnly === true) continue;
       const result = domain.analyze(file);
       signals.push(...result.signals.flatMap((item) => localizeSignal(file, item)));
       positives.push(...result.positives.filter((item) => changed(file, item.line)));
     } catch (error) {
-      parseErrors.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
+      if (file.contextOnly !== true) {
+        parseErrors.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
+      }
     }
   }
 
@@ -62,11 +77,15 @@ export async function analyzeDiscovery(discovery: Discovery): Promise<Analysis> 
     const file = files.get(signal.path);
     return file === undefined ? [] : localizeSignal(file, signal);
   }));
+  signals.push(...crossMethodContractSignals(policyGroups, contractTests).flatMap((signal) => {
+    const file = files.get(signal.path);
+    return file === undefined ? [] : localizeSignal(file, signal);
+  }));
 
   return {
     mode: discovery.mode,
     ...(discovery.base === undefined ? {} : { base: discovery.base }),
-    filesScanned: discovery.files.length,
+    filesScanned: discovery.files.filter((file) => file.contextOnly !== true).length,
     signals: signals.sort(byLocation),
     positives: positives.sort(byLocation),
     parseErrors: parseErrors.sort((left, right) => left.path.localeCompare(right.path)),

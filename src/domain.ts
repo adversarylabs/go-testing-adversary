@@ -145,6 +145,20 @@ export const domain: DomainDefinition = {
         "For every key intended for only one partition, assert its expected value there and explicitly assert it is absent from the counterpart partition.",
     },
     {
+      id: "go-test.cross-method-contract-coverage",
+      title: "Behavioral test omits sibling methods with the same changed gate",
+      category: "correctness",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) =>
+        `${count} cross-method behavioral test${count === 1 ? " covers" : "s cover"} only a strict subset of the changed entrypoints.`,
+      whyItMatters:
+        "A shared policy can be wired correctly in one handler and regress independently in a sibling while the named behavioral test stays green.",
+      impact: "Per-entrypoint enforcement or exemption regressions can ship behind a test that proves only one of several changed handler paths.",
+      recommendation:
+        "Exercise every sibling method carrying the changed gate, preferably with one table that names each entrypoint and asserts the same behavior.",
+    },
+    {
       id: "go-test.unconditional-skip",
       title: "Test begins with an unconditional t.Skip",
       category: "maintainability",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -53,6 +53,33 @@ test("an added test file remains eligible in full", async () => {
     review.findings.filter((finding) => finding.ruleId === "go-test.testmain-defer-before-exit").length,
     1,
   );
+});
+
+test("changed tests hydrate only changed production and unchanged tests in their direct package", async () => {
+  const repo = await mkdtemp(join(tmpdir(), "go-testing-contract-context-"));
+  await execute("git", ["init", "--quiet"], { cwd: repo });
+  await execute("git", ["config", "user.email", "tests@example.com"], { cwd: repo });
+  await execute("git", ["config", "user.name", "Tests"], { cwd: repo });
+  await mkdir(join(repo, "pkg", "workload"), { recursive: true });
+  await mkdir(join(repo, "pkg", "other"), { recursive: true });
+  await writeFile(join(repo, "pkg", "workload", "handler.go"), "package workload\nfunc ready() bool { return true }\n");
+  await writeFile(join(repo, "pkg", "workload", "handler_test.go"), "package workload\n// baseline\n");
+  await writeFile(join(repo, "pkg", "workload", "existing_test.go"), "package workload\n// sibling context\n");
+  await writeFile(join(repo, "pkg", "other", "other.go"), "package other\nfunc ready() bool { return true }\n");
+  await execute("git", ["add", "."], { cwd: repo });
+  await execute("git", ["commit", "--quiet", "-m", "fixture"], { cwd: repo });
+
+  await writeFile(join(repo, "pkg", "workload", "handler.go"), "package workload\nfunc ready() bool { return false }\n");
+  await writeFile(join(repo, "pkg", "workload", "handler_test.go"), "package workload\n// changed test\n");
+  await writeFile(join(repo, "pkg", "other", "other.go"), "package other\nfunc ready() bool { return false }\n");
+  const changed = ["pkg/workload/handler.go", "pkg/workload/handler_test.go", "pkg/other/other.go"];
+  const discovery = await discoverSources(changedContext(repo, changed));
+
+  assert.deepEqual(discovery.files.map((file) => [file.path, file.contextOnly ?? false, file.status]), [
+    ["pkg/workload/existing_test.go", true, "context"],
+    ["pkg/workload/handler_test.go", false, "modified"],
+    ["pkg/workload/handler.go", true, "modified"],
+  ]);
 });
 
 async function repositoryWithLegacyTestMain(): Promise<string> {

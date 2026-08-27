@@ -3656,49 +3656,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative3, options, skipNormalization) {
+    function resolveComponent(base, relative4, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse(serialize(base, options), options);
-        relative3 = parse(serialize(relative3, options), options);
+        relative4 = parse(serialize(relative4, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative3.scheme) {
-        target.scheme = relative3.scheme;
-        target.userinfo = relative3.userinfo;
-        target.host = relative3.host;
-        target.port = relative3.port;
-        target.path = removeDotSegments(relative3.path || "");
-        target.query = relative3.query;
+      if (!options.tolerant && relative4.scheme) {
+        target.scheme = relative4.scheme;
+        target.userinfo = relative4.userinfo;
+        target.host = relative4.host;
+        target.port = relative4.port;
+        target.path = removeDotSegments(relative4.path || "");
+        target.query = relative4.query;
       } else {
-        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
-          target.userinfo = relative3.userinfo;
-          target.host = relative3.host;
-          target.port = relative3.port;
-          target.path = removeDotSegments(relative3.path || "");
-          target.query = relative3.query;
+        if (relative4.userinfo !== void 0 || relative4.host !== void 0 || relative4.port !== void 0) {
+          target.userinfo = relative4.userinfo;
+          target.host = relative4.host;
+          target.port = relative4.port;
+          target.path = removeDotSegments(relative4.path || "");
+          target.query = relative4.query;
         } else {
-          if (!relative3.path) {
+          if (!relative4.path) {
             target.path = base.path;
-            if (relative3.query !== void 0) {
-              target.query = relative3.query;
+            if (relative4.query !== void 0) {
+              target.query = relative4.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative3.path[0] === "/") {
-              target.path = removeDotSegments(relative3.path);
+            if (relative4.path[0] === "/") {
+              target.path = removeDotSegments(relative4.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative3.path;
+                target.path = "/" + relative4.path;
               } else if (!base.path) {
-                target.path = relative3.path;
+                target.path = relative4.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative4.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative3.query;
+            target.query = relative4.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3706,7 +3706,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative3.fragment;
+      target.fragment = relative4.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -11137,10 +11137,10 @@ var require_resolve_block_map = __commonJS({
       let offset = bm.offset;
       let commentEnd = null;
       for (const collItem of bm.items) {
-        const { start: start2, key, sep: sep2, value } = collItem;
+        const { start: start2, key, sep: sep3, value } = collItem;
         const keyProps = resolveProps.resolveProps(start2, {
           indicator: "explicit-key-ind",
-          next: key ?? sep2?.[0],
+          next: key ?? sep3?.[0],
           offset,
           onError,
           parentIndent: bm.indent,
@@ -11154,7 +11154,7 @@ var require_resolve_block_map = __commonJS({
             else if ("indent" in key && key.indent !== bm.indent)
               onError(offset, "BAD_INDENT", startColMsg);
           }
-          if (!keyProps.anchor && !keyProps.tag && !sep2) {
+          if (!keyProps.anchor && !keyProps.tag && !sep3) {
             commentEnd = keyProps.end;
             if (keyProps.comment) {
               if (map.comment)
@@ -11178,7 +11178,7 @@ var require_resolve_block_map = __commonJS({
         ctx.atKey = false;
         if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
           onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-        const valueProps = resolveProps.resolveProps(sep2 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep3 ?? [], {
           indicator: "map-value-ind",
           next: value,
           offset: keyNode.range[2],
@@ -11194,7 +11194,7 @@ var require_resolve_block_map = __commonJS({
             if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
               onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep2, null, valueProps, onError);
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep3, null, valueProps, onError);
           if (ctx.schema.compat)
             utilFlowIndentCheck.flowIndentCheck(bm.indent, value, onError);
           offset = valueNode.range[2];
@@ -11285,7 +11285,7 @@ var require_resolve_end = __commonJS({
       let comment = "";
       if (end) {
         let hasSpace = false;
-        let sep2 = "";
+        let sep3 = "";
         for (const token of end) {
           const { source, type } = token;
           switch (type) {
@@ -11299,13 +11299,13 @@ var require_resolve_end = __commonJS({
               if (!comment)
                 comment = cb;
               else
-                comment += sep2 + cb;
-              sep2 = "";
+                comment += sep3 + cb;
+              sep3 = "";
               break;
             }
             case "newline":
               if (comment)
-                sep2 += source;
+                sep3 += source;
               hasSpace = true;
               break;
             default:
@@ -11348,18 +11348,18 @@ var require_resolve_flow_collection = __commonJS({
       let offset = fc.offset + fc.start.source.length;
       for (let i2 = 0; i2 < fc.items.length; ++i2) {
         const collItem = fc.items[i2];
-        const { start: start2, key, sep: sep2, value } = collItem;
+        const { start: start2, key, sep: sep3, value } = collItem;
         const props = resolveProps.resolveProps(start2, {
           flow: fcName,
           indicator: "explicit-key-ind",
-          next: key ?? sep2?.[0],
+          next: key ?? sep3?.[0],
           offset,
           onError,
           parentIndent: fc.indent,
           startOnNewline: false
         });
         if (!props.found) {
-          if (!props.anchor && !props.tag && !sep2 && !value) {
+          if (!props.anchor && !props.tag && !sep3 && !value) {
             if (i2 === 0 && props.comma)
               onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
             else if (i2 < fc.items.length - 1)
@@ -11413,8 +11413,8 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep2 && !props.found) {
-          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep2, null, props, onError);
+        if (!isMap && !sep3 && !props.found) {
+          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep3, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
           if (isBlock(value))
@@ -11426,7 +11426,7 @@ var require_resolve_flow_collection = __commonJS({
           if (isBlock(key))
             onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
           ctx.atKey = false;
-          const valueProps = resolveProps.resolveProps(sep2 ?? [], {
+          const valueProps = resolveProps.resolveProps(sep3 ?? [], {
             flow: fcName,
             indicator: "map-value-ind",
             next: value,
@@ -11437,8 +11437,8 @@ var require_resolve_flow_collection = __commonJS({
           });
           if (valueProps.found) {
             if (!isMap && !props.found && ctx.options.strict) {
-              if (sep2)
-                for (const st of sep2) {
+              if (sep3)
+                for (const st of sep3) {
                   if (st === valueProps.found)
                     break;
                   if (st.type === "newline") {
@@ -11455,7 +11455,7 @@ var require_resolve_flow_collection = __commonJS({
             else
               onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep2, null, valueProps, onError) : null;
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep3, null, valueProps, onError) : null;
           if (valueNode) {
             if (isBlock(value))
               onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -11635,7 +11635,7 @@ var require_resolve_block_scalar = __commonJS({
           chompStart = i2 + 1;
       }
       let value = "";
-      let sep2 = "";
+      let sep3 = "";
       let prevMoreIndented = false;
       for (let i2 = 0; i2 < contentStart; ++i2)
         value += lines[i2][0].slice(trimIndent) + "\n";
@@ -11652,24 +11652,24 @@ var require_resolve_block_scalar = __commonJS({
           indent = "";
         }
         if (type === Scalar.Scalar.BLOCK_LITERAL) {
-          value += sep2 + indent.slice(trimIndent) + content;
-          sep2 = "\n";
+          value += sep3 + indent.slice(trimIndent) + content;
+          sep3 = "\n";
         } else if (indent.length > trimIndent || content[0] === "	") {
-          if (sep2 === " ")
-            sep2 = "\n";
-          else if (!prevMoreIndented && sep2 === "\n")
-            sep2 = "\n\n";
-          value += sep2 + indent.slice(trimIndent) + content;
-          sep2 = "\n";
+          if (sep3 === " ")
+            sep3 = "\n";
+          else if (!prevMoreIndented && sep3 === "\n")
+            sep3 = "\n\n";
+          value += sep3 + indent.slice(trimIndent) + content;
+          sep3 = "\n";
           prevMoreIndented = true;
         } else if (content === "") {
-          if (sep2 === "\n")
+          if (sep3 === "\n")
             value += "\n";
           else
-            sep2 = "\n";
+            sep3 = "\n";
         } else {
-          value += sep2 + content;
-          sep2 = " ";
+          value += sep3 + content;
+          sep3 = " ";
           prevMoreIndented = false;
         }
       }
@@ -11851,25 +11851,25 @@ var require_resolve_flow_scalar = __commonJS({
       if (!match)
         return source;
       let res = match[1];
-      let sep2 = " ";
+      let sep3 = " ";
       let pos = first.lastIndex;
       line.lastIndex = pos;
       while (match = line.exec(source)) {
         if (match[1] === "") {
-          if (sep2 === "\n")
-            res += sep2;
+          if (sep3 === "\n")
+            res += sep3;
           else
-            sep2 = "\n";
+            sep3 = "\n";
         } else {
-          res += sep2 + match[1];
-          sep2 = " ";
+          res += sep3 + match[1];
+          sep3 = " ";
         }
         pos = line.lastIndex;
       }
       const last = /[ \t]*(.*)/sy;
       last.lastIndex = pos;
       match = last.exec(source);
-      return res + sep2 + (match?.[1] ?? "");
+      return res + sep3 + (match?.[1] ?? "");
     }
     function doubleQuotedValue(source, onError) {
       let res = "";
@@ -12679,14 +12679,14 @@ var require_cst_stringify = __commonJS({
         }
       }
     }
-    function stringifyItem({ start: start2, key, sep: sep2, value }) {
+    function stringifyItem({ start: start2, key, sep: sep3, value }) {
       let res = "";
       for (const st of start2)
         res += st.source;
       if (key)
         res += stringifyToken(key);
-      if (sep2)
-        for (const st of sep2)
+      if (sep3)
+        for (const st of sep3)
           res += st.source;
       if (value)
         res += stringifyToken(value);
@@ -13853,18 +13853,18 @@ var require_parser = __commonJS({
         if (this.type === "map-value-ind") {
           const prev = getPrevProps(this.peek(2));
           const start2 = getFirstKeyStartProps(prev);
-          let sep2;
+          let sep3;
           if (scalar.end) {
-            sep2 = scalar.end;
-            sep2.push(this.sourceToken);
+            sep3 = scalar.end;
+            sep3.push(this.sourceToken);
             delete scalar.end;
           } else
-            sep2 = [this.sourceToken];
+            sep3 = [this.sourceToken];
           const map = {
             type: "block-map",
             offset: scalar.offset,
             indent: scalar.indent,
-            items: [{ start: start2, key: scalar, sep: sep2 }]
+            items: [{ start: start2, key: scalar, sep: sep3 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map;
@@ -14017,15 +14017,15 @@ var require_parser = __commonJS({
                 } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                   const start3 = getFirstKeyStartProps(it.start);
                   const key = it.key;
-                  const sep2 = it.sep;
-                  sep2.push(this.sourceToken);
+                  const sep3 = it.sep;
+                  sep3.push(this.sourceToken);
                   delete it.key;
                   delete it.sep;
                   this.stack.push({
                     type: "block-map",
                     offset: this.offset,
                     indent: this.indent,
-                    items: [{ start: start3, key, sep: sep2 }]
+                    items: [{ start: start3, key, sep: sep3 }]
                   });
                 } else if (start2.length > 0) {
                   it.sep = it.sep.concat(start2, this.sourceToken);
@@ -14219,13 +14219,13 @@ var require_parser = __commonJS({
             const prev = getPrevProps(parent);
             const start2 = getFirstKeyStartProps(prev);
             fixFlowSeqItems(fc);
-            const sep2 = fc.end.splice(1, fc.end.length);
-            sep2.push(this.sourceToken);
+            const sep3 = fc.end.splice(1, fc.end.length);
+            sep3.push(this.sourceToken);
             const map = {
               type: "block-map",
               offset: fc.offset,
               indent: fc.indent,
-              items: [{ start: start2, key: fc, sep: sep2 }]
+              items: [{ start: start2, key: fc, sep: sep3 }]
             };
             this.onKeyLine = true;
             this.stack[this.stack.length - 1] = map;
@@ -14504,7 +14504,7 @@ var require_dist = __commonJS({
 });
 
 // src/index.ts
-import { realpath as realpath2 } from "node:fs/promises";
+import { realpath as realpath3 } from "node:fs/promises";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // node_modules/@adversarylabs/sdk/dist/index.js
@@ -17206,6 +17206,17 @@ var domain = {
       recommendation: "For every key intended for only one partition, assert its expected value there and explicitly assert it is absent from the counterpart partition."
     },
     {
+      id: "go-test.cross-method-contract-coverage",
+      title: "Behavioral test omits sibling methods with the same changed gate",
+      category: "correctness",
+      severity: "medium",
+      confidence: "high",
+      summary: (count) => `${count} cross-method behavioral test${count === 1 ? " covers" : "s cover"} only a strict subset of the changed entrypoints.`,
+      whyItMatters: "A shared policy can be wired correctly in one handler and regress independently in a sibling while the named behavioral test stays green.",
+      impact: "Per-entrypoint enforcement or exemption regressions can ship behind a test that proves only one of several changed handler paths.",
+      recommendation: "Exercise every sibling method carrying the changed gate, preferably with one table that names each entrypoint and asserts the same behavior."
+    },
+    {
       id: "go-test.unconditional-skip",
       title: "Test begins with an unconditional t.Skip",
       category: "maintainability",
@@ -17692,6 +17703,9 @@ function maskNonCode(source) {
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// src/cross-method-contract.ts
+import { dirname as dirname3 } from "node:path";
 
 // src/parser.ts
 import { existsSync } from "node:fs";
@@ -21720,6 +21734,385 @@ function sourceText(node, source) {
   return source.slice(node.startIndex, node.endIndex);
 }
 
+// src/cross-method-contract.ts
+async function policyGroupEvidence(file, tree) {
+  if (!eligibleSource(file) || file.path.endsWith("_test.go") || file.status === "repository" || file.status === "context") return [];
+  const current = collectPolicyGroups(file, tree);
+  if (file.status === "modified" && file.previous === void 0) return [];
+  if (file.previous === void 0) return current;
+  let previousTree;
+  try {
+    previousTree = await parseGo(file.previous);
+    if (previousTree.rootNode.hasError) return [];
+    const previous = collectPolicyGroups({
+      path: file.path,
+      current: file.previous,
+      changedLines: /* @__PURE__ */ new Set(),
+      status: "repository"
+    }, previousTree, false);
+    const priorMethods = new Set(previous.flatMap((group) => group.methods.map((method) => `${group.key}\0${method.method}`)));
+    return current.filter((group) => group.methods.some((method) => method.changed && !priorMethods.has(`${group.key}\0${method.method}`)));
+  } catch {
+    return [];
+  } finally {
+    previousTree?.delete();
+  }
+}
+function collectPolicyGroups(file, tree, requireChanged = true) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const method of descendants(tree.rootNode, "method_declaration")) {
+    const nameNode = method.childForFieldName("name");
+    const receiverNode = method.childForFieldName("receiver");
+    const body2 = method.childForFieldName("body");
+    if (nameNode === null || receiverNode === null || body2 === null) continue;
+    const methodName = sourceText(nameNode, file.current);
+    if (!/^[A-Z]/.test(methodName)) continue;
+    const receiver = receiverBinding(sourceText(receiverNode, file.current));
+    if (receiver === void 0) continue;
+    for (const call of descendants(body2, "call_expression")) {
+      if (owningCallable(call)?.id !== method.id || !isReturningGate(call, method, file.current)) continue;
+      const invoked = directReceiverMethod(call, receiver.name, file.current);
+      if (invoked === void 0 || invoked === methodName) continue;
+      const line = call.startPosition.row + 1;
+      const endLine = call.endPosition.row + 1;
+      const callChanged = changed(file, line, endLine);
+      const key = `${dirname3(file.path)}\0${receiver.type}\0${invoked}`;
+      const methods = grouped.get(key) ?? /* @__PURE__ */ new Map();
+      methods.set(methodName, { method: methodName, line, changed: callChanged });
+      grouped.set(key, methods);
+    }
+  }
+  return [...grouped.entries()].flatMap(([key, methods]) => {
+    const values = [...methods.values()].sort((left, right) => left.method.localeCompare(right.method));
+    if (values.length < 3 || requireChanged && !values.some((method) => method.changed)) return [];
+    const [, receiverType, helper] = key.split("\0");
+    return [{
+      key,
+      directory: dirname3(file.path),
+      helper,
+      receiverType,
+      methods: values
+    }];
+  });
+}
+function contractTestEvidence(file, tree) {
+  if (!eligibleSource(file) || !file.path.endsWith("_test.go")) return [];
+  const evidence = [];
+  const callbackExecutors = provenCallbackExecutors(tree.rootNode, file.current);
+  for (const fn of descendants(tree.rootNode, "function_declaration")) {
+    const nameNode = fn.childForFieldName("name");
+    const body2 = fn.childForFieldName("body");
+    if (nameNode === null || body2 === null) continue;
+    const name2 = sourceText(nameNode, file.current);
+    if (!/^Test[A-Z0-9_]/.test(name2)) continue;
+    const calls = /* @__PURE__ */ new Set();
+    const anchors = [nameNode.startPosition.row + 1];
+    let hasOracle = false;
+    for (const call of descendants(body2, "call_expression")) {
+      const callable = call.childForFieldName("function");
+      if (callable === null) continue;
+      if (executedByTest(call, fn, file.current, callbackExecutors)) {
+        const field = selectorField(callable, file.current);
+        if (field !== void 0 && /^[A-Z]/.test(field)) {
+          calls.add(field);
+          anchors.push(call.startPosition.row + 1);
+        }
+      }
+      if (isTestOracle(callable, file.current) && belongsToExecutedTestScope(call, fn, file.current, callbackExecutors)) {
+        hasOracle = true;
+        anchors.push(call.startPosition.row + 1);
+      }
+    }
+    evidence.push({
+      directory: dirname3(file.path),
+      path: file.path,
+      source: file.current,
+      status: file.status,
+      changedLines: file.changedLines,
+      name: name2,
+      normalizedName: normalizeIdentifier(name2.replace(/^Test/, "")),
+      line: nameNode.startPosition.row + 1,
+      anchors: [...new Set(anchors)].sort((left, right) => left - right),
+      calls,
+      hasOracle
+    });
+  }
+  return evidence;
+}
+function belongsToExecutedTestScope(call, test, source, callbackExecutors) {
+  const owner = owningCallable(call);
+  if (owner === void 0) return false;
+  if (owner.id === test.id) return !precededByReturn(call, test);
+  if (owner.type !== "func_literal") return false;
+  return directlyInvokedFromTest(owner, test, source, callbackExecutors) || invokedByProvenHelper(owner, test, source, callbackExecutors);
+}
+function crossMethodContractSignals(groups, tests) {
+  const signals = [];
+  for (const group of groups.sort((left, right) => left.key.localeCompare(right.key))) {
+    const helper = normalizeIdentifier(group.helper);
+    const relevant = tests.filter((test) => test.directory === group.directory && test.hasOracle && test.normalizedName.includes(helper));
+    if (relevant.length === 0) continue;
+    const candidateMethods = new Set(group.methods.map((method) => method.method));
+    const covered = /* @__PURE__ */ new Set();
+    for (const test of relevant) {
+      for (const call of test.calls) {
+        if (candidateMethods.has(call)) covered.add(call);
+      }
+    }
+    if (covered.size === 0 || covered.size === candidateMethods.size) continue;
+    const presentation = relevant.flatMap((test) => test.anchors.filter((line) => test.status === "added" || test.status === "repository" || test.changedLines.has(line)).map((line) => ({ test, line }))).sort((left, right) => left.test.path.localeCompare(right.test.path) || left.line - right.line)[0];
+    if (presentation === void 0 || presentation.test.status === "context") continue;
+    const missing = [...candidateMethods].filter((method) => !covered.has(method)).sort();
+    const coveredList = [...covered].sort();
+    signals.push({
+      ruleId: "go-test.cross-method-contract-coverage",
+      path: presentation.test.path,
+      line: presentation.line,
+      locality: { kind: "direct", anchors: [presentation.line] },
+      message: `${presentation.test.name} exercises ${coveredList.join(", ")} for the ${group.helper} contract, but the same changed gate is also wired into ${missing.join(", ")} without behavioral coverage in this package.`,
+      snippet: (presentation.test.source.split("\n")[presentation.line - 1] ?? "").trim().slice(0, 300),
+      data: {
+        helper: group.helper,
+        receiverType: group.receiverType,
+        coveredMethods: coveredList,
+        missingMethods: missing
+      }
+    });
+  }
+  return signals;
+}
+function receiverBinding(value) {
+  const match = value.trim().match(/^\(\s*([A-Za-z_]\w*)\s+\*?([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?(?:\[[^\]]+\])?)\s*\)$/);
+  return match === null ? void 0 : { name: match[1], type: match[2] };
+}
+function directReceiverMethod(call, receiver, source) {
+  const callable = call.childForFieldName("function");
+  if (callable === null || callable.type !== "selector_expression") return void 0;
+  const operand = callable.childForFieldName("operand") ?? callable.namedChild(0);
+  const field = callable.childForFieldName("field") ?? callable.namedChild(callable.namedChildCount - 1);
+  if (operand === null || field === null || operand.type !== "identifier") return void 0;
+  return sourceText(operand, source) === receiver ? sourceText(field, source) : void 0;
+}
+function isReturningGate(call, owner, source) {
+  for (let candidate = call.parent; candidate !== null && candidate.id !== owner.id; candidate = candidate.parent) {
+    if (candidate.type !== "if_statement") continue;
+    const consequence = candidate.childForFieldName("consequence");
+    if (consequence === null || call.startIndex >= consequence.startIndex) return false;
+    const header = source.slice(candidate.startIndex, consequence.startIndex);
+    const assignment = header.match(/^\s*if\s+([A-Za-z_]\w*)\s*:=\s*[\s\S]*?;\s*\1\s*!=\s*nil\b/);
+    if (assignment === null) return false;
+    const statements = consequence.namedChildren.find((child) => child.type === "statement_list");
+    return statements?.namedChildren.some((statement) => statement.type === "return_statement") ?? false;
+  }
+  return false;
+}
+function executedByTest(call, test, source, callbackExecutors) {
+  const owner = owningCallable(call);
+  if (owner === void 0) return false;
+  if (owner.id === test.id) return directlyWithinCallable(call, test, source);
+  if (owner.type !== "func_literal") return false;
+  if (!directlyWithinCallable(call, owner, source)) return false;
+  if (directlyInvokedFromTest(owner, test, source, callbackExecutors)) return true;
+  if (invokedByProvenHelper(owner, test, source, callbackExecutors)) return true;
+  const keyed = ancestor(owner, "keyed_element", test);
+  const loop = ancestor(owner, "for_statement", test);
+  if (keyed === void 0 || loop === void 0) return false;
+  const key = sourceText(keyed, source).match(/^\s*([A-Za-z_]\w*)\s*:/)?.[1];
+  if (key === void 0) return false;
+  const body2 = loop.childForFieldName("body");
+  return body2 !== null && descendants(body2, "call_expression").some((invocation) => {
+    const callable = invocation.childForFieldName("function");
+    if (callable === null || selectorField(callable, source) !== key) return false;
+    const invocationOwner = owningCallable(invocation);
+    if (invocationOwner?.id === test.id) return directlyWithinLoop(invocation, loop);
+    if (invocationOwner?.type !== "func_literal" || !directlyWithinCallable(invocation, invocationOwner, source)) return false;
+    const runArgs = invocationOwner.parent;
+    const runCall = runArgs?.type === "argument_list" ? runArgs.parent : void 0;
+    if (runCall?.type !== "call_expression") return false;
+    const runCallable = runCall.childForFieldName("function");
+    return runCallable !== null && selectorField(runCallable, source) === "Run" && directlyWithinLoop(runCall, loop);
+  });
+}
+function provenCallbackExecutors(root, source) {
+  const executors = /* @__PURE__ */ new Map();
+  const functions = descendants(root, "function_declaration");
+  const nameCounts = /* @__PURE__ */ new Map();
+  for (const fn of functions) {
+    const nameNode = fn.childForFieldName("name");
+    if (nameNode !== null) {
+      const name2 = sourceText(nameNode, source);
+      nameCounts.set(name2, (nameCounts.get(name2) ?? 0) + 1);
+    }
+  }
+  for (const fn of functions) {
+    const nameNode = fn.childForFieldName("name");
+    const parameters = fn.childForFieldName("parameters");
+    const body2 = fn.childForFieldName("body");
+    if (nameNode === null || parameters === null || body2 === null) continue;
+    const functionName = sourceText(nameNode, source);
+    if (nameCounts.get(functionName) !== 1) continue;
+    const callbackParameters = [];
+    let index = 0;
+    for (const parameter of parameters.namedChildren) {
+      if (parameter.type !== "parameter_declaration") continue;
+      const text = sourceText(parameter, source).trim();
+      const match = text.match(/^([A-Za-z_]\w*)\s+func\s*\(/);
+      if (match !== null) callbackParameters.push({ name: match[1], index });
+      index += 1;
+    }
+    for (const parameter of callbackParameters) {
+      const invoked = descendants(body2, "call_expression").some((call) => {
+        if (owningCallable(call)?.id !== fn.id) return false;
+        const callable = call.childForFieldName("function");
+        return callable?.type === "identifier" && sourceText(callable, source) === parameter.name && directlyWithinCallable(call, fn, source) && !identifierAssignedBefore(fn, parameter.name, call.startIndex, source);
+      });
+      if (!invoked) continue;
+      const indexes = executors.get(functionName) ?? /* @__PURE__ */ new Set();
+      indexes.add(parameter.index);
+      executors.set(functionName, indexes);
+    }
+  }
+  return executors;
+}
+function directlyWithinCallable(node, callable, source) {
+  for (let candidate = node.parent; candidate !== null && candidate.id !== callable.id; candidate = candidate.parent) {
+    if (candidate.type === "if_statement") {
+      const consequence = candidate.childForFieldName("consequence");
+      if (consequence !== null && node.endIndex <= consequence.startIndex) continue;
+      return false;
+    }
+    if (candidate.type === "for_statement" && knownNonEmptyLoop(candidate, source)) continue;
+    if (["if_statement", "for_statement", "expression_switch_statement", "type_switch_statement", "select_statement", "go_statement", "defer_statement", "func_literal"].includes(candidate.type)) {
+      return false;
+    }
+  }
+  return !precededByReturn(node, callable);
+}
+function knownNonEmptyLoop(loop, source) {
+  const body2 = loop.childForFieldName("body");
+  if (body2 === null) return false;
+  const header = source.slice(loop.startIndex, body2.startIndex).replace(/\s+/g, " ");
+  const match = header.match(/^for\s+([A-Za-z_]\w*)\s*:=\s*0\s*;\s*\1\s*<\s*(\d+)\s*;/);
+  return match !== null && Number(match[2]) > 0;
+}
+function directlyWithinLoop(node, loop) {
+  for (let candidate = node.parent; candidate !== null && candidate.id !== loop.id; candidate = candidate.parent) {
+    if (["if_statement", "for_statement", "expression_switch_statement", "type_switch_statement", "select_statement"].includes(candidate.type)) {
+      return false;
+    }
+    if (candidate.type === "func_literal") {
+      const args2 = candidate.parent;
+      const call = args2?.type === "argument_list" ? args2.parent : void 0;
+      if (call?.type !== "call_expression") return false;
+      node = call;
+    }
+  }
+  return true;
+}
+function identifierAssignedBefore(owner, name2, before, source) {
+  return [
+    ...descendants(owner, "assignment_statement"),
+    ...descendants(owner, "short_var_declaration")
+  ].some((assignment) => {
+    if (assignment.startIndex >= before || owningCallable(assignment)?.id !== owner.id) return false;
+    const left = assignment.childForFieldName("left");
+    return left !== null && descendants(left, "identifier").some((identifier) => sourceText(identifier, source) === name2);
+  });
+}
+function precededByReturn(node, owner) {
+  const statements = nearestStatementList(node, owner);
+  if (statements === void 0) return false;
+  return statements.namedChildren.some((statement) => statement.endIndex <= node.startIndex && statement.type === "return_statement");
+}
+function nearestStatementList(node, owner) {
+  for (let candidate = node.parent; candidate !== null && candidate.id !== owner.id; candidate = candidate.parent) {
+    if (candidate.type === "statement_list") return candidate;
+  }
+  return void 0;
+}
+function invokedByProvenHelper(fn, test, source, callbackExecutors) {
+  const argumentsNode = fn.parent;
+  const call = argumentsNode?.type === "argument_list" ? argumentsNode.parent : void 0;
+  if (call?.type !== "call_expression") return false;
+  const callable = call.childForFieldName("function");
+  const args2 = call.childForFieldName("arguments")?.namedChildren ?? [];
+  if (callable?.type !== "identifier") return false;
+  const helper = sourceText(callable, source);
+  const argumentIndex = args2.findIndex((argument) => argument.id === fn.id);
+  if (argumentIndex < 0 || !callbackExecutors.get(helper)?.has(argumentIndex)) return false;
+  if (locallyBindsIdentifier(test, helper, call.startIndex, source)) return false;
+  return directlyWithinCallable(call, test, source);
+}
+function locallyBindsIdentifier(test, name2, before, source) {
+  return [
+    ...descendants(test, "short_var_declaration"),
+    ...descendants(test, "var_declaration"),
+    ...descendants(test, "assignment_statement")
+  ].some((binding) => {
+    if (binding.startIndex >= before || owningCallable(binding)?.id !== test.id) return false;
+    const left = binding.childForFieldName("left") ?? binding;
+    return descendants(left, "identifier").some((identifier) => sourceText(identifier, source) === name2);
+  });
+}
+function directInvocation(fn) {
+  let callable = fn;
+  while (callable.parent?.type === "parenthesized_expression") callable = callable.parent;
+  const call = callable.parent;
+  return call?.type === "call_expression" && call.childForFieldName("function")?.id === callable.id ? call : void 0;
+}
+function directlyInvokedFromTest(fn, test, source, callbackExecutors) {
+  const call = directInvocation(fn);
+  if (call === void 0) return false;
+  const owner = owningCallable(call);
+  if (owner === void 0) return false;
+  if (owner.id === test.id) return directlyWithinCallable(call, test, source);
+  if (owner.type !== "func_literal" || !directlyWithinCallable(call, owner, source)) return false;
+  return directlyInvokedFromTest(owner, test, source, callbackExecutors) || invokedByProvenHelper(owner, test, source, callbackExecutors);
+}
+function selectorField(callable, source) {
+  if (callable.type !== "selector_expression") return void 0;
+  const field = callable.childForFieldName("field") ?? callable.namedChild(callable.namedChildCount - 1);
+  return field === null ? void 0 : sourceText(field, source);
+}
+function isTestOracle(callable, source) {
+  if (callable.type !== "selector_expression") return false;
+  const field = selectorField(callable, source);
+  const operand = callable.childForFieldName("operand") ?? callable.namedChild(0);
+  if (field === void 0 || operand === null) return false;
+  const receiver = sourceText(operand, source).replace(/\s/g, "");
+  return /^(?:assert|require)(?:\.\w+)?$/.test(receiver) || /^(?:Fatal|Fatalf|Error|Errorf|Fail|FailNow|NoError|Equal|Zero|NotZero|Nil|NotNil)$/.test(field);
+}
+function owningCallable(node) {
+  for (let candidate = node.parent; candidate !== null; candidate = candidate.parent) {
+    if (candidate.type === "function_declaration" || candidate.type === "method_declaration" || candidate.type === "func_literal") {
+      return candidate;
+    }
+  }
+  return void 0;
+}
+function ancestor(node, type, boundary) {
+  for (let candidate = node.parent; candidate !== null && candidate.id !== boundary.id; candidate = candidate.parent) {
+    if (candidate.type === type) return candidate;
+  }
+  return void 0;
+}
+function normalizeIdentifier(value) {
+  return value.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+}
+function changed(file, startLine, endLine) {
+  if (file.status === "added") return true;
+  for (let line = startLine; line <= endLine; line += 1) {
+    if (file.changedLines.has(line)) return true;
+  }
+  return false;
+}
+function eligibleSource(file) {
+  if (/(?:^|\/)(?:vendor|testdata|generated|mocks?|fakes?)(?:\/|$)/i.test(file.path.replaceAll("\\", "/"))) {
+    return false;
+  }
+  return !/^\s*\/\/ Code generated .* DO NOT EDIT\./m.test(file.current.slice(0, 2e3));
+}
+
 // src/partition-oracle.ts
 var ASSERTION_IMPORT = /^(?:([A-Za-z_]\w*)\s+)?["`]([^"`]+\/(assert|require))["`]$/;
 var EQUALITY_ASSERTIONS = /* @__PURE__ */ new Set(["Equal", "EqualValues", "Exactly"]);
@@ -21884,7 +22277,7 @@ function testifyAssertionEvidence(assertion, read, scope, testify, source) {
   return void 0;
 }
 function immediatelyAssertedAssignment(read, scope, assertionReceivers, source) {
-  const declaration = ancestor(read, "short_var_declaration");
+  const declaration = ancestor2(read, "short_var_declaration");
   if (declaration === void 0 || directStatement(scope, declaration) === void 0) return void 0;
   const left = declaration.childForFieldName("left");
   const right = declaration.childForFieldName("right");
@@ -21947,7 +22340,7 @@ function importedAssertionCall(call, scope, receivers, source) {
   return receiver?.type === "identifier" && receivers.has(sourceText(receiver, source)) && !locallyDeclaredAt(scope, sourceText(receiver, source), call, source);
 }
 function failingComparisonEvidence(comparison, read, source) {
-  const conditional = ancestor(comparison, "if_statement");
+  const conditional = ancestor2(comparison, "if_statement");
   const scope = owningFunction(comparison);
   const condition = conditional?.childForFieldName("condition");
   const consequence = conditional?.childForFieldName("consequence");
@@ -22041,7 +22434,7 @@ function receiverBindingStable(scope, name2, source) {
   }
   for (const specification of descendants(scope, "var_spec")) {
     if (owningFunction(specification)?.startIndex !== scope.startIndex) continue;
-    const declaration = ancestor(specification, "var_declaration");
+    const declaration = ancestor2(specification, "var_declaration");
     const statement = declaration === void 0 ? void 0 : topLevelStatement(scope, declaration);
     if (declaration === void 0 || statement?.startIndex !== declaration.startIndex || statement.endIndex !== declaration.endIndex) continue;
     const names = specification.childForFieldName("name");
@@ -22192,7 +22585,7 @@ function eligibleTestScope(scope, source) {
   if (field === null || field === void 0 || sourceText(field, source) !== "Run" || receiver?.type !== "identifier") return false;
   return testingVariables(call, source).has(sourceText(receiver, source));
 }
-function ancestor(node, type) {
+function ancestor2(node, type) {
   let current = node.parent;
   while (current !== null) {
     if (current.type === type) return current;
@@ -22682,7 +23075,7 @@ function normalize(value) {
 }
 
 // src/selector-oracle.ts
-import { dirname as dirname3 } from "node:path";
+import { dirname as dirname4 } from "node:path";
 var ASSERTION_NAMES = /* @__PURE__ */ new Set(["Equal", "EqualValues", "Exactly"]);
 var TESTIFY_IMPORT = /^(?:([A-Za-z_]\w*)\s+)?["`]github\.com\/stretchr\/testify\/(assert|require)["`]$/;
 var SELECTOR_WORDS = /* @__PURE__ */ new Set([
@@ -22719,7 +23112,7 @@ function selectorOracleEvidence(file, tree) {
   if (!file.path.endsWith("_test.go")) return [];
   const packageName = descendants(tree.rootNode, "package_identifier")[0];
   if (packageName === void 0) return [];
-  const packageKey = `${dirname3(file.path)}\0${sourceText(packageName, file.current)}`;
+  const packageKey = `${dirname4(file.path)}\0${sourceText(packageName, file.current)}`;
   const bySelector = /* @__PURE__ */ new Map();
   for (const call of descendants(tree.rootNode, "call_expression")) {
     const selector = selectorIdentity(call, file.current);
@@ -22834,7 +23227,7 @@ function equalityExpected(call, source) {
   return immediatelyAssertedAssignment2(call, source);
 }
 function immediatelyAssertedAssignment2(call, source) {
-  const declaration = ancestor2(call, "short_var_declaration");
+  const declaration = ancestor3(call, "short_var_declaration");
   if (declaration === void 0) return void 0;
   const left = declaration.childForFieldName("left");
   const right = declaration.childForFieldName("right");
@@ -22894,7 +23287,7 @@ function testifyReceivers2(node, source) {
 }
 function failingComparisonExpected(comparison, source, isActual) {
   if (binaryOperator(comparison, source) !== "!=") return void 0;
-  const conditional = ancestor2(comparison, "if_statement");
+  const conditional = ancestor3(comparison, "if_statement");
   const condition = conditional?.childForFieldName("condition");
   const consequence = conditional?.childForFieldName("consequence");
   if (conditional === void 0 || condition == null || consequence == null || !contains2(condition, comparison) || !hasTestingFailure2(consequence, comparison, source)) return void 0;
@@ -22975,7 +23368,7 @@ function tableCases(call, expectedNode, source) {
   if (inputField === void 0 || expectedField === void 0 || inputField.owner !== expectedField.owner) {
     return void 0;
   }
-  const loop = ancestor2(call, "for_statement");
+  const loop = ancestor3(call, "for_statement");
   const range = loop?.namedChildren.find((child) => child.type === "range_clause");
   const right = range?.childForFieldName("right");
   if (range === void 0 || right === null || right === void 0 || loop === void 0) return void 0;
@@ -23019,7 +23412,7 @@ function tableComposite(loop, rangeRight, source) {
   if (rangeRight.type === "composite_literal") return rangeRight;
   if (rangeRight.type !== "identifier") return void 0;
   const variable = sourceText(rangeRight, source);
-  const fn = ancestor2(loop, "function_declaration");
+  const fn = ancestor3(loop, "function_declaration");
   if (fn === void 0) return void 0;
   for (const declaration of descendants(fn, "short_var_declaration")) {
     if (declaration.startIndex >= loop.startIndex) continue;
@@ -23120,7 +23513,7 @@ function unwrapLiteral(node) {
 function contains2(parent, child) {
   return parent.startIndex <= child.startIndex && parent.endIndex >= child.endIndex;
 }
-function ancestor2(node, type) {
+function ancestor3(node, type) {
   let current = node.parent;
   while (current !== null) {
     if (current.type === type) return current;
@@ -23138,12 +23531,17 @@ async function analyzeDiscovery(discovery) {
   const positives = [];
   const parseErrors = [];
   const selectorEvidence = [];
+  const policyGroups = [];
+  const contractTests = [];
   for (const file of discovery.files) {
     try {
       if (file.path.endsWith(".go")) {
         const tree = await parseGo(file.current);
         try {
           if (tree.rootNode.hasError) throw new Error("Go source contains syntax errors");
+          policyGroups.push(...await policyGroupEvidence(file, tree));
+          contractTests.push(...contractTestEvidence(file, tree));
+          if (file.contextOnly === true) continue;
           const result2 = domain.analyze(file);
           signals.push(...result2.signals.flatMap((item) => localizeSignal(file, item)));
           const privileged = privilegedHostPathSignals(file, tree);
@@ -23170,17 +23568,20 @@ async function analyzeDiscovery(discovery) {
             signals.push(...partitionOracle.flatMap((item) => localizeSignal(file, item)));
           }
           selectorEvidence.push(...selectorOracleEvidence(file, tree));
-          positives.push(...result2.positives.filter((item) => changed(file, item.line)));
+          positives.push(...result2.positives.filter((item) => changed2(file, item.line)));
         } finally {
           tree.delete();
         }
         continue;
       }
+      if (file.contextOnly === true) continue;
       const result = domain.analyze(file);
       signals.push(...result.signals.flatMap((item) => localizeSignal(file, item)));
-      positives.push(...result.positives.filter((item) => changed(file, item.line)));
+      positives.push(...result.positives.filter((item) => changed2(file, item.line)));
     } catch (error) {
-      parseErrors.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
+      if (file.contextOnly !== true) {
+        parseErrors.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
+      }
     }
   }
   const files = new Map(discovery.files.map((file) => [file.path, file]));
@@ -23188,10 +23589,14 @@ async function analyzeDiscovery(discovery) {
     const file = files.get(signal.path);
     return file === void 0 ? [] : localizeSignal(file, signal);
   }));
+  signals.push(...crossMethodContractSignals(policyGroups, contractTests).flatMap((signal) => {
+    const file = files.get(signal.path);
+    return file === void 0 ? [] : localizeSignal(file, signal);
+  }));
   return {
     mode: discovery.mode,
     ...discovery.base === void 0 ? {} : { base: discovery.base },
-    filesScanned: discovery.files.length,
+    filesScanned: discovery.files.filter((file) => file.contextOnly !== true).length,
     signals: signals.sort(byLocation),
     positives: positives.sort(byLocation),
     parseErrors: parseErrors.sort((left, right) => left.path.localeCompare(right.path))
@@ -23244,7 +23649,7 @@ function localizedSignal(file, signal, line, data) {
     data
   };
 }
-function changed(file, line, endLine = line) {
+function changed2(file, line, endLine = line) {
   if (file.status === "repository" || file.status === "added") return true;
   for (let candidate = line; candidate <= endLine; candidate += 1) {
     if (file.changedLines.has(candidate)) return true;
@@ -23257,23 +23662,35 @@ function byLocation(left, right) {
 
 // src/discover.ts
 import { execFile } from "node:child_process";
+import { readdir as readdir4, readFile as readFile4, realpath as realpath2, stat } from "node:fs/promises";
+import { dirname as dirname5, join as join4, relative as relative3, sep as sep2 } from "node:path";
 import { promisify } from "node:util";
 var MAX_FILE_BYTES = 75e4;
 var MAX_FILES = 750;
+var MAX_CONTEXT_FILES = 150;
 var execute = promisify(execFile);
 async function discoverSources(ctx) {
+  const wholeTarget = ctx.change === null || ctx.change.scanMode === "all";
+  const changedTestDirectories = wholeTarget ? /* @__PURE__ */ new Set() : new Set(
+    (ctx.change?.changedFiles ?? []).map(normalizeRepoPath).filter(domain.includePath).map((path) => dirname5(path).replaceAll("\\", "/"))
+  );
   const sources = await ctx.loadInScopeSources({
-    include: domain.includePath,
+    include: (path) => {
+      const normalized = normalizeRepoPath(path);
+      if (domain.includePath(normalized)) return true;
+      return !wholeTarget && normalized.endsWith(".go") && changedTestDirectories.has(dirname5(normalized).replaceAll("\\", "/"));
+    },
     limit: MAX_FILES,
     maxBytes: MAX_FILE_BYTES
   });
-  const wholeTarget = ctx.change === null || ctx.change.scanMode === "all";
   const files = [];
   for (const source of sources) {
+    const contextOnly = !domain.includePath(source.path);
     if (source.status === "repository") {
       files.push({
         path: source.path,
         current: source.content,
+        ...contextOnly ? { contextOnly: true } : {},
         changedLines: /* @__PURE__ */ new Set(),
         deletedHunks: [],
         status: "repository"
@@ -23284,17 +23701,85 @@ async function discoverSources(ctx) {
     files.push({
       path: source.path,
       current: source.content,
+      ...contextOnly ? { contextOnly: true } : {},
       ...change.previous === void 0 ? {} : { previous: change.previous },
       changedLines: change.changedLines,
       deletedHunks: change.deletedHunks,
       status: change.status
     });
   }
+  if (!wholeTarget && files.length < MAX_FILES) {
+    files.push(...await siblingTestContext(
+      ctx.repoPath,
+      changedTestDirectories,
+      new Set(files.map((file) => normalizeRepoPath(file.path))),
+      Math.min(MAX_CONTEXT_FILES, MAX_FILES - files.length)
+    ));
+  }
+  files.sort((left, right) => left.path.localeCompare(right.path));
   return {
     mode: wholeTarget ? "repository" : "diff",
     ...ctx.change?.baseRef === void 0 ? {} : { base: ctx.change.baseRef },
     files
   };
+}
+async function siblingTestContext(repository, directories, knownPaths, limit) {
+  if (limit <= 0) return [];
+  let root;
+  try {
+    root = await realpath2(repository);
+  } catch {
+    return [];
+  }
+  const context = [];
+  for (const directory of [...directories].sort()) {
+    if (context.length >= limit) break;
+    const absoluteDirectory = await safeExistingPath(root, join4(root, ...directory.split("/")));
+    if (absoluteDirectory === void 0) continue;
+    let entries;
+    try {
+      entries = await readdir4(absoluteDirectory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (context.length >= limit || !entry.isFile() || !entry.name.endsWith("_test.go")) continue;
+      const path = normalizeRepoPath(directory === "." ? entry.name : `${directory}/${entry.name}`);
+      if (knownPaths.has(path)) continue;
+      try {
+        const absolute = await safeExistingPath(root, join4(absoluteDirectory, entry.name));
+        if (absolute === void 0) continue;
+        const metadata2 = await stat(absolute);
+        if (!metadata2.isFile() || metadata2.size > MAX_FILE_BYTES) continue;
+        const current = await readFile4(absolute, "utf8");
+        if (Buffer.byteLength(current, "utf8") > MAX_FILE_BYTES || current.includes("\0")) continue;
+        context.push({
+          path,
+          current,
+          contextOnly: true,
+          changedLines: /* @__PURE__ */ new Set(),
+          deletedHunks: [],
+          status: "context"
+        });
+        knownPaths.add(path);
+      } catch {
+      }
+    }
+  }
+  return context;
+}
+function normalizeRepoPath(path) {
+  return path.replaceAll("\\", "/").replace(/^\.\//, "");
+}
+async function safeExistingPath(root, path) {
+  try {
+    const candidate = await realpath2(path);
+    const fromRoot = relative3(root, candidate);
+    if (fromRoot === ".." || fromRoot.startsWith(`..${sep2}`)) return void 0;
+    return candidate;
+  } catch {
+    return void 0;
+  }
 }
 async function changedSource(ctx, path) {
   const base = ctx.change?.baseRef;
@@ -23480,7 +23965,7 @@ function addPositives(ctx, analysis) {
 function createApp() {
   const app = new Adversary({
     name: domain.name,
-    version: "0.0.18",
+    version: "0.0.19",
     review: { maximumFindings: 8, minimumConfidence: "medium" }
   });
   app.rule(`${domain.name}.review`, async (ctx) => {
@@ -23497,7 +23982,7 @@ function createApp() {
   return app;
 }
 async function runIfDirect() {
-  if (process.argv[1] !== void 0 && await realpath2(process.argv[1]) === await realpath2(fileURLToPath2(import.meta.url))) {
+  if (process.argv[1] !== void 0 && await realpath3(process.argv[1]) === await realpath3(fileURLToPath2(import.meta.url))) {
     await createApp().runFromEnvironment();
   }
 }
