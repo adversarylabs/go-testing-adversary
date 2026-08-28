@@ -1,5 +1,5 @@
 name: adversarylabs/go/testing
-version: 0.0.19
+version: 0.0.20
 description: "Reviews Go tests for broken harnesses, flaky shared state, incomplete cross-entrypoint contracts, and oracles that preserve trivial defects."
 
 triggers:
