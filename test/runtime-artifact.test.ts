@@ -76,7 +76,7 @@ func TestResponseMetadata(t *testing.T) {
   const envelope = JSON.parse(await readFile(output, "utf8"));
   assert.equal(envelope.protocolVersion, 1);
   assert.equal(envelope.result.adversary.name, "go/testing");
-  assert.equal(envelope.result.adversary.version, "0.0.19");
+  assert.equal(envelope.result.adversary.version, "0.0.20");
   assert.equal(envelope.result.findings.length, 1);
   assert.equal(envelope.result.findings[0]?.ruleId, "go-test.partition-boundary-oracle");
 
@@ -148,7 +148,7 @@ func TestEnforceContract(t *testing.T) {
     env: { ...process.env, ADVERSARY_INPUT: input, ADVERSARY_OUTPUT: output, ADVERSARY_REPO: repository },
   });
   const vulnerable = JSON.parse(await readFile(output, "utf8"));
-  assert.equal(vulnerable.result.adversary.version, "0.0.19");
+  assert.equal(vulnerable.result.adversary.version, "0.0.20");
   assert.equal(vulnerable.result.target.filesScanned, 1);
   assert.deepEqual(vulnerable.result.findings.map((finding: { ruleId?: string }) => finding.ruleId), [
     "go-test.cross-method-contract-coverage",
