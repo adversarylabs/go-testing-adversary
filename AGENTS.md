@@ -20,4 +20,4 @@ This repository contains an official domain-level Go adversary. It should behave
 - Add a focused regression fixture for every signal and clean counterexamples.
 - Preserve the five graded fixture tiers and expected review snapshots.
 - Keep automatic detection and artifact-isolation tests passing.
-- Run `npm test`, `adversary validate .`, and `adversary pack --check .`.
+- Run `npm test`, `doomer validate .`, and `doomer pack --check .`.
